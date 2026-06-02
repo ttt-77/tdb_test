@@ -1,3 +1,6 @@
-streamlit>=1.39
+# NOTE: streamlit itself is provided by the HF Space runtime via the
+# `sdk_version` field in README.md — do NOT list it here, or pip may install a
+# different version and cause a frontend/backend mismatch
+# ("Cannot load Streamlit frontend code").
 huggingface_hub>=0.25
 requests>=2.31
