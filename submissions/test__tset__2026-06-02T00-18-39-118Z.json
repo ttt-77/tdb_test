@@ -1,0 +1,22 @@
+{
+  "trial_id": "test",
+  "username": "tset",
+  "submittedAt": "2026-06-02T00:18:38.755Z",
+  "comparison": {
+    "trial_id": "test",
+    "username": "tset",
+    "prompts": [
+      {
+        "id": "P-001",
+        "design_element": "test",
+        "question": "est",
+        "question_type": "",
+        "artifact": "",
+        "dimension": "",
+        "points": "",
+        "criterion": "",
+        "tolerance": ""
+      }
+    ]
+  }
+}
