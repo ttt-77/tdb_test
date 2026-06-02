@@ -23,7 +23,7 @@ A Streamlit intake form for trial statisticians. Submissions are saved to a **Hu
     - `extraction_only` → 1 rubric: `output.json`
     - `derivation_required` → 4 rubrics: `output.json` × {Inputs used, Calculated value, Method} + `output.R` × {Reproducibility}
   - Each rubric collects `points`, `tolerance`, `criterion`.
-- **Admin page (`pages/1_Admin.py`)** — password-gated review console. A submission can be reviewed many times by different people: each review (status + reviewer name + comment) is appended to the submission's `review_history`, and the page shows the full timeline. The top-level `status` always reflects the most recent review. Every review is committed back to the dataset.
+- **Admin page (`pages/1_Admin.py`)** — password-gated review console. A submission can be reviewed many times by different people: each review (status + reviewer name + comment) is written as its own file under `reviews/<submission>/`, and the page shows the full timeline. The current status is the most recent review's status. Submissions themselves are never modified.
 
 ## Run locally
 
@@ -85,9 +85,20 @@ The Space will restart automatically and pick up the new secrets.
 ### 6. Test
 
 - Open the Space URL → fill the form → **Submit**. A new file lands in `submissions/<trial_id>__<username>__<timestamp>.json` in the dataset repo.
-- Open the **Admin** page (left sidebar) → enter password → see the submission with status `pending` → change status, add reviewer/note → save.
+- Open the **Admin** page (left sidebar) → enter password → see the submission with status `pending` → add a review (your name + status + comment). It appears in the review timeline and a new file lands under `reviews/<submission>/`. Add more reviews to build up the history.
 
-## Submission record shape
+## Dataset layout
+
+Submissions are **immutable**. Each review is a **separate file** — so a
+submission can be reviewed many times by different people, and concurrent
+reviews never conflict (each is a brand-new file, never an overwrite).
+
+```text
+submissions/<trial>__<user>__<stamp>.json            # the submission (never rewritten)
+reviews/<trial>__<user>__<stamp>/<stamp>__<rev>.json # one file per review
+```
+
+### Submission file (`submissions/*.json`)
 
 ```json
 {
@@ -95,14 +106,6 @@ The Space will restart automatically and pick up the new secrets.
   "submittedAt": "2026-06-01T...",
   "trial_id": "NCT0001",
   "username": "jdoe",
-  "status": "needs_fix",
-  "reviewer": "Dr. Lee",
-  "reviewerNote": "still missing the power assumption",
-  "reviewedAt": "2026-06-01T16:00:00+00:00",
-  "review_history": [
-    {"at": "2026-06-01T15:30:00+00:00", "reviewer": "Dr. Smith", "status": "reviewed",  "note": "looks good"},
-    {"at": "2026-06-01T16:00:00+00:00", "reviewer": "Dr. Lee",   "status": "needs_fix", "note": "still missing the power assumption"}
-  ],
   "comparison": {
     "trial_id": "NCT0001",
     "username": "jdoe",
@@ -125,14 +128,40 @@ The Space will restart automatically and pick up the new secrets.
 }
 ```
 
-Load all submissions in Python:
+### Review file (`reviews/<submission>/*.json`)
+
+```json
+{
+  "submissionId": "submissions/NCT0001__jdoe__2026-06-01T...Z.json",
+  "at": "2026-06-01T16:00:00+00:00",
+  "reviewer": "Dr. Lee",
+  "status": "needs_fix",
+  "note": "still missing the power assumption"
+}
+```
+
+The **current status** of a submission is derived as the most recent review's
+status (or `pending` if it has no reviews yet).
+
+### Load everything in Python
 
 ```python
 from huggingface_hub import snapshot_download
-import json, glob
+import json, glob, os
 
 local = snapshot_download("ttt-77/tdb-intake-submissions", repo_type="dataset")
-records = [json.load(open(f)) for f in glob.glob(f"{local}/submissions/*.json")]
+
+submissions = {
+    os.path.basename(f)[:-5]: json.load(open(f))
+    for f in glob.glob(f"{local}/submissions/*.json")
+}
+# reviews grouped by submission base name
+reviews = {}
+for f in glob.glob(f"{local}/reviews/*/*.json"):
+    base = os.path.basename(os.path.dirname(f))
+    reviews.setdefault(base, []).append(json.load(open(f)))
+for base in reviews:
+    reviews[base].sort(key=lambda r: r["at"])  # oldest first
 ```
 
 ## Project structure

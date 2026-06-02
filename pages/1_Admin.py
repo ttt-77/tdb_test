@@ -1,8 +1,8 @@
-"""Admin review console — list submissions, view review history, add reviews.
+"""Admin review console — list submissions, view review timeline, add reviews.
 
-A submission can be reviewed many times by different people. Each review is
-appended to the submission's ``review_history``; the most recent one is mirrored
-into the top-level status fields for filtering/sorting.
+Submissions are immutable. Each review is stored as its own file under
+``reviews/<submission>/``; a submission can be reviewed many times by different
+people. The "current status" shown here is the most recent review's status.
 """
 
 from __future__ import annotations
@@ -16,7 +16,6 @@ from lib.storage import (
     ADMIN_PASSWORD,
     add_review,
     check_admin_password,
-    get_submission,
     hf_configured,
     list_submissions,
 )
@@ -59,7 +58,7 @@ if not st.session_state.admin_authed:
 # ------------- load list -------------------------------------------------
 
 if not hf_configured:
-    st.info("ℹ️ Reading from `./data/submissions/` (local dev mode).")
+    st.info("ℹ️ Reading from `./data/` (local dev mode).")
 
 cols = st.columns([3, 1])
 with cols[0]:
@@ -74,23 +73,23 @@ with cols[1]:
         st.rerun()
 
 try:
-    summaries = list_submissions()
+    items = list_submissions()
 except Exception as e:
     st.error(f"Failed to list submissions: {e}")
     st.stop()
 
 if status_filter:
-    summaries = [s for s in summaries if s["status"] in status_filter]
+    items = [s for s in items if s["status"] in status_filter]
 
-st.caption(f"{len(summaries)} submission(s)")
+st.caption(f"{len(items)} submission(s)")
 
-if not summaries:
+if not items:
     st.info("No submissions match this filter.")
     st.stop()
 
 # ------------- list display ----------------------------------------------
 
-for s in summaries:
+for s in items:
     n_reviews = s.get("review_count", 0)
     review_tag = f"  ·  💬 {n_reviews}" if n_reviews else "  ·  no reviews yet"
     label = (
@@ -99,32 +98,26 @@ for s in summaries:
         f"_{s['submittedAt']}_{review_tag}"
     )
     with st.expander(label):
-        record = get_submission(s["submissionId"])
-        if record is None:
-            st.error("Could not fetch this record.")
-            continue
-
         meta_c1, meta_c2 = st.columns(2)
         with meta_c1:
             st.markdown(
-                f"**Current status:** {status_badge(record.get('status', 'pending'))}  \n"
-                f"**Submitted:** {record.get('submittedAt', '')}  \n"
-                f"**Last reviewed:** {record.get('reviewedAt', '') or '—'}"
+                f"**Current status:** {status_badge(s.get('status', 'pending'))}  \n"
+                f"**Submitted:** {s.get('submittedAt', '')}  \n"
+                f"**Last reviewed:** {s.get('reviewedAt', '') or '—'}"
             )
         with meta_c2:
             st.markdown(
-                f"**File:** `{record.get('submissionId', '')}`  \n"
-                f"**Last reviewer:** {record.get('reviewer', '') or '—'}"
+                f"**File:** `{s.get('submissionId', '')}`  \n"
+                f"**Last reviewer:** {s.get('reviewer', '') or '—'}"
             )
 
-        # ---- Review history ------------------------------------------
-        history = record.get("review_history") or []
-        st.markdown(f"#### Review history ({len(history)})")
-        if not history:
+        # ---- Review timeline -----------------------------------------
+        reviews = s.get("reviews") or []
+        st.markdown(f"#### Review history ({len(reviews)})")
+        if not reviews:
             st.caption("No reviews yet.")
         else:
-            # Newest first.
-            for rev in reversed(history):
+            for rev in reversed(reviews):  # newest first
                 st.markdown(
                     f"- {status_badge(rev.get('status', ''))} — "
                     f"**{rev.get('reviewer') or 'anon'}** "
@@ -132,14 +125,14 @@ for s in summaries:
                     + (f"  \n  {rev.get('note')}" if rev.get("note") else "")
                 )
 
-        # ---- Add a new review ----------------------------------------
+        # ---- Add a review --------------------------------------------
         st.markdown("#### Add a review")
         with st.form(f"review_{s['submissionId']}"):
             new_status = st.radio(
                 "Status",
                 options=VALID_STATUSES,
-                index=VALID_STATUSES.index(record.get("status", "pending"))
-                if record.get("status") in VALID_STATUSES
+                index=VALID_STATUSES.index(s.get("status", "pending"))
+                if s.get("status") in VALID_STATUSES
                 else 0,
                 horizontal=True,
             )
@@ -148,8 +141,7 @@ for s in summaries:
                 reviewer = st.text_input("Your name", placeholder="e.g., Dr. Smith")
             with rc2:
                 note = st.text_input("Comment", placeholder="optional")
-            submitted = st.form_submit_button("Add review", type="primary")
-            if submitted:
+            if st.form_submit_button("Add review", type="primary"):
                 if not reviewer.strip():
                     st.error("Please enter your name.")
                 else:
@@ -166,4 +158,4 @@ for s in summaries:
                         st.error(f"Failed to add review: {e}")
 
         with st.expander("Raw submission JSON"):
-            st.code(json.dumps(record, indent=2, ensure_ascii=False), language="json")
+            st.code(json.dumps(s.get("submission", {}), indent=2, ensure_ascii=False), language="json")
