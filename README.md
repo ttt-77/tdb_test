@@ -9,7 +9,7 @@ app_file: app.py
 pinned: false
 ---
 
-# Clinical Trial AI Reproduction Benchmark — Intake
+# Trial Design Benchmark — Intake
 
 A Streamlit intake form for trial statisticians. Submissions are saved to a **Hugging Face Dataset** repo. An **Admin** page (in the sidebar) lets reviewers triage submissions (`pending` / `reviewed` / `needs_fix`).
 

@@ -1,4 +1,4 @@
-"""Clinical Trial AI Reproduction Benchmark — Intake form.
+"""Trial Design Benchmark — Intake form.
 
 Run locally:
     streamlit run app.py
@@ -95,7 +95,7 @@ def _submit() -> None:
 
 # ------------- header ----------------------------------------------------
 
-st.title("Clinical Trial AI Reproduction Benchmark")
+st.title("Trial Design Benchmark")
 st.caption("Statistician intake form")
 
 if not hf_configured:
