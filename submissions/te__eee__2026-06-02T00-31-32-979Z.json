@@ -1,0 +1,48 @@
+{
+  "trial_id": "te",
+  "username": "eee",
+  "submittedAt": "2026-06-02T00:31:32.854Z",
+  "comparison": {
+    "trial_id": "te",
+    "username": "eee",
+    "prompts": [
+      {
+        "id": "P-001",
+        "design_element": "Hypotheses/Endpoints",
+        "design_element_other": "",
+        "question": "test",
+        "question_type": "derivation_required",
+        "rubrics": [
+          {
+            "artifact": "output.json",
+            "dimension": "Inputs used",
+            "points": "",
+            "criterion": "",
+            "tolerance": ""
+          },
+          {
+            "artifact": "output.json",
+            "dimension": "Calculated value",
+            "points": "",
+            "criterion": "",
+            "tolerance": ""
+          },
+          {
+            "artifact": "output.json",
+            "dimension": "Method",
+            "points": "",
+            "criterion": "",
+            "tolerance": ""
+          },
+          {
+            "artifact": "output.R",
+            "dimension": "Reproducibility",
+            "points": "",
+            "criterion": "",
+            "tolerance": ""
+          }
+        ]
+      }
+    ]
+  }
+}
