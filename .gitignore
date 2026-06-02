@@ -1,7 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Streamlit secrets
+.streamlit/secrets.toml
+
+# Legacy Next.js
 node_modules
 .next
 out
-.DS_Store
-data/submissions
+
+# Local-only data (HF Dataset is the real store in prod)
+data/
+
+# Env files
+.env
+.env.local
 *.local
-.env*
+
+# OS
+.DS_Store
