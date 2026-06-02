@@ -107,10 +107,14 @@ def create_submission(trial_id: str, username: str, comparison: Dict[str, Any]) 
         "submittedAt": _now_iso(),
         "trial_id": trial_id,
         "username": username,
+        # These top-level fields mirror the most recent review for easy
+        # filtering/sorting; they are updated by add_review().
         "status": "pending",
         "reviewer": "",
         "reviewerNote": "",
         "reviewedAt": "",
+        # Full append-only log: one entry per review by any reviewer.
+        "review_history": [],
         "comparison": comparison,
     }
 
@@ -172,28 +176,48 @@ def get_submission(submission_id: str) -> Optional[Dict[str, Any]]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def update_submission(
+def add_review(
     submission_id: str,
-    status: Optional[str] = None,
-    reviewer: Optional[str] = None,
-    reviewer_note: Optional[str] = None,
+    status: str,
+    reviewer: str,
+    note: str = "",
 ) -> Optional[Dict[str, Any]]:
+    """Append a review to the submission's history.
+
+    A submission can be reviewed many times by different people. Each call adds
+    one entry to ``review_history`` and mirrors it into the top-level
+    status/reviewer/reviewerNote/reviewedAt fields (which always reflect the
+    latest review).
+    """
     record = get_submission(submission_id)
     if record is None:
         return None
-    if status is not None:
-        record["status"] = status
-        record["reviewedAt"] = _now_iso()
-    if reviewer is not None:
-        record["reviewer"] = reviewer
-    if reviewer_note is not None:
-        record["reviewerNote"] = reviewer_note
+
+    now = _now_iso()
+    entry = {
+        "at": now,
+        "reviewer": reviewer,
+        "status": status,
+        "note": note,
+    }
+    history = record.get("review_history")
+    if not isinstance(history, list):
+        history = []
+    history.append(entry)
+    record["review_history"] = history
+
+    # Mirror the latest review into the top-level fields.
+    record["status"] = status
+    record["reviewer"] = reviewer
+    record["reviewerNote"] = note
+    record["reviewedAt"] = now
 
     if hf_configured:
         _hf_upload_json(
             submission_id,
             record,
-            commit_message=f"Update: {submission_id.rsplit('/', 1)[-1]}",
+            commit_message=f"Review ({status}) by {reviewer or 'anon'}: "
+            f"{submission_id.rsplit('/', 1)[-1]}",
         )
     else:
         path = LOCAL_DATA_DIR / submission_id
@@ -202,6 +226,8 @@ def update_submission(
 
 
 def _summarize(record: Dict[str, Any]) -> Dict[str, Any]:
+    history = record.get("review_history")
+    review_count = len(history) if isinstance(history, list) else 0
     return {
         "submissionId": record.get("submissionId", ""),
         "trial_id": record.get("trial_id", ""),
@@ -210,6 +236,7 @@ def _summarize(record: Dict[str, Any]) -> Dict[str, Any]:
         "status": record.get("status", "pending"),
         "reviewedAt": record.get("reviewedAt", ""),
         "reviewer": record.get("reviewer", ""),
+        "review_count": review_count,
     }
 
 

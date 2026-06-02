@@ -1,4 +1,9 @@
-"""Admin review console — list submissions, change status, add reviewer notes."""
+"""Admin review console — list submissions, view review history, add reviews.
+
+A submission can be reviewed many times by different people. Each review is
+appended to the submission's ``review_history``; the most recent one is mirrored
+into the top-level status fields for filtering/sorting.
+"""
 
 from __future__ import annotations
 
@@ -9,11 +14,11 @@ import streamlit as st
 from lib.schema import VALID_STATUSES
 from lib.storage import (
     ADMIN_PASSWORD,
+    add_review,
     check_admin_password,
     get_submission,
     hf_configured,
     list_submissions,
-    update_submission,
 )
 
 st.set_page_config(page_title="TDB Intake — Admin", page_icon="🔍", layout="wide")
@@ -23,6 +28,11 @@ STATUS_EMOJI = {
     "reviewed": "🟢",
     "needs_fix": "🔴",
 }
+
+
+def status_badge(status: str) -> str:
+    return f"{STATUS_EMOJI.get(status, '⚪')} {status}"
+
 
 # ------------- auth ------------------------------------------------------
 
@@ -81,10 +91,12 @@ if not summaries:
 # ------------- list display ----------------------------------------------
 
 for s in summaries:
+    n_reviews = s.get("review_count", 0)
+    review_tag = f"  ·  💬 {n_reviews}" if n_reviews else "  ·  no reviews yet"
     label = (
         f"{STATUS_EMOJI.get(s['status'], '⚪')} "
         f"**{s['trial_id']}** — {s['username']}  ·  "
-        f"_{s['submittedAt']}_"
+        f"_{s['submittedAt']}_{review_tag}"
     )
     with st.expander(label):
         record = get_submission(s["submissionId"])
@@ -95,48 +107,63 @@ for s in summaries:
         meta_c1, meta_c2 = st.columns(2)
         with meta_c1:
             st.markdown(
-                f"**Status:** `{record.get('status', 'pending')}`  \n"
+                f"**Current status:** {status_badge(record.get('status', 'pending'))}  \n"
                 f"**Submitted:** {record.get('submittedAt', '')}  \n"
-                f"**Reviewed at:** {record.get('reviewedAt', '') or '—'}"
+                f"**Last reviewed:** {record.get('reviewedAt', '') or '—'}"
             )
         with meta_c2:
             st.markdown(
                 f"**File:** `{record.get('submissionId', '')}`  \n"
-                f"**Reviewer:** {record.get('reviewer', '') or '—'}  \n"
-                f"**Reviewer note:** {record.get('reviewerNote', '') or '—'}"
+                f"**Last reviewer:** {record.get('reviewer', '') or '—'}"
             )
 
-        # Update form
-        with st.form(f"upd_{s['submissionId']}"):
+        # ---- Review history ------------------------------------------
+        history = record.get("review_history") or []
+        st.markdown(f"#### Review history ({len(history)})")
+        if not history:
+            st.caption("No reviews yet.")
+        else:
+            # Newest first.
+            for rev in reversed(history):
+                st.markdown(
+                    f"- {status_badge(rev.get('status', ''))} — "
+                    f"**{rev.get('reviewer') or 'anon'}** "
+                    f"· _{rev.get('at', '')}_"
+                    + (f"  \n  {rev.get('note')}" if rev.get("note") else "")
+                )
+
+        # ---- Add a new review ----------------------------------------
+        st.markdown("#### Add a review")
+        with st.form(f"review_{s['submissionId']}"):
             new_status = st.radio(
-                "Set status",
+                "Status",
                 options=VALID_STATUSES,
                 index=VALID_STATUSES.index(record.get("status", "pending"))
                 if record.get("status") in VALID_STATUSES
                 else 0,
                 horizontal=True,
             )
-            ur_c1, ur_c2 = st.columns(2)
-            with ur_c1:
-                new_reviewer = st.text_input(
-                    "Reviewer name", value=record.get("reviewer", "")
-                )
-            with ur_c2:
-                new_note = st.text_input(
-                    "Reviewer note", value=record.get("reviewerNote", "")
-                )
-            if st.form_submit_button("Save", type="primary"):
-                try:
-                    update_submission(
-                        s["submissionId"],
-                        status=new_status,
-                        reviewer=new_reviewer,
-                        reviewer_note=new_note,
-                    )
-                    st.success("Saved.")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Update failed: {e}")
+            rc1, rc2 = st.columns([1, 2])
+            with rc1:
+                reviewer = st.text_input("Your name", placeholder="e.g., Dr. Smith")
+            with rc2:
+                note = st.text_input("Comment", placeholder="optional")
+            submitted = st.form_submit_button("Add review", type="primary")
+            if submitted:
+                if not reviewer.strip():
+                    st.error("Please enter your name.")
+                else:
+                    try:
+                        add_review(
+                            s["submissionId"],
+                            status=new_status,
+                            reviewer=reviewer.strip(),
+                            note=note.strip(),
+                        )
+                        st.success("Review added.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Failed to add review: {e}")
 
         with st.expander("Raw submission JSON"):
             st.code(json.dumps(record, indent=2, ensure_ascii=False), language="json")

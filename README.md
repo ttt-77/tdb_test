@@ -23,7 +23,7 @@ A Streamlit intake form for trial statisticians. Submissions are saved to a **Hu
     - `extraction_only` → 1 rubric: `output.json`
     - `derivation_required` → 4 rubrics: `output.json` × {Inputs used, Calculated value, Method} + `output.R` × {Reproducibility}
   - Each rubric collects `points`, `tolerance`, `criterion`.
-- **Admin page (`pages/1_Admin.py`)** — password-gated review console; updates are committed back to the dataset.
+- **Admin page (`pages/1_Admin.py`)** — password-gated review console. A submission can be reviewed many times by different people: each review (status + reviewer name + comment) is appended to the submission's `review_history`, and the page shows the full timeline. The top-level `status` always reflects the most recent review. Every review is committed back to the dataset.
 
 ## Run locally
 
@@ -95,10 +95,14 @@ The Space will restart automatically and pick up the new secrets.
   "submittedAt": "2026-06-01T...",
   "trial_id": "NCT0001",
   "username": "jdoe",
-  "status": "pending",
-  "reviewer": "",
-  "reviewerNote": "",
-  "reviewedAt": "",
+  "status": "needs_fix",
+  "reviewer": "Dr. Lee",
+  "reviewerNote": "still missing the power assumption",
+  "reviewedAt": "2026-06-01T16:00:00+00:00",
+  "review_history": [
+    {"at": "2026-06-01T15:30:00+00:00", "reviewer": "Dr. Smith", "status": "reviewed",  "note": "looks good"},
+    {"at": "2026-06-01T16:00:00+00:00", "reviewer": "Dr. Lee",   "status": "needs_fix", "note": "still missing the power assumption"}
+  ],
   "comparison": {
     "trial_id": "NCT0001",
     "username": "jdoe",
