@@ -1,15 +1,18 @@
 "use client";
-import { Comparison, PromptItem, QuestionType } from "@/lib/types";
+import {
+  Comparison,
+  DESIGN_ELEMENT_OPTIONS,
+  PromptItem,
+  QUESTION_TYPE_OPTIONS,
+  QuestionType,
+  Rubric,
+  rubricsForType,
+} from "@/lib/types";
 
 type Props = {
   value: Comparison;
   onChange: (v: Comparison) => void;
 };
-
-const questionTypeOptions: { v: QuestionType; label: string }[] = [
-  { v: "extraction_only", label: "extraction_only" },
-  { v: "derivation_required", label: "derivation_required" },
-];
 
 const nextPromptId = (existing: PromptItem[]) => {
   const nums = existing
@@ -25,17 +28,27 @@ const blankPrompt = (id: string): PromptItem => ({
   design_element: "",
   question: "",
   question_type: "",
-  artifact: "",
-  dimension: "",
-  points: "",
-  criterion: "",
-  tolerance: "",
+  rubrics: [],
 });
 
 export default function StepCompare({ value, onChange }: Props) {
   const setPrompt = (idx: number, patch: Partial<PromptItem>) => {
     const next = value.prompts.map((p, i) => (i === idx ? { ...p, ...patch } : p));
     onChange({ ...value, prompts: next });
+  };
+
+  const setRubric = (pIdx: number, rIdx: number, patch: Partial<Rubric>) => {
+    const prompt = value.prompts[pIdx];
+    const rubrics = prompt.rubrics.map((r, i) => (i === rIdx ? { ...r, ...patch } : r));
+    setPrompt(pIdx, { rubrics });
+  };
+
+  const changeQuestionType = (idx: number, qt: QuestionType) => {
+    const prompt = value.prompts[idx];
+    // Regenerate rubrics from scratch when the type changes so artifact/dimension stay in sync.
+    if (prompt.question_type !== qt) {
+      setPrompt(idx, { question_type: qt, rubrics: rubricsForType(qt) });
+    }
   };
 
   const addPrompt = () => {
@@ -52,9 +65,8 @@ export default function StepCompare({ value, onChange }: Props) {
       <div>
         <h2 className="text-base font-semibold">Trial design prompts</h2>
         <p className="text-sm text-slate-500">
-          For each design element you want to capture, add a prompt with its question and
-          question type. Use <code>extraction_only</code> when the answer can be pulled verbatim
-          from the SAP, and <code>derivation_required</code> when it must be computed.
+          For each design element you want to capture, add a question and select its type.
+          Rubrics are generated automatically — fill in points / criterion / tolerance for each.
         </p>
       </div>
 
@@ -109,32 +121,33 @@ export default function StepCompare({ value, onChange }: Props) {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div>
                 <label className="label">design_element</label>
-                <input
+                <select
                   className="input"
-                  placeholder="e.g., Alpha allocation"
                   value={p.design_element}
                   onChange={(e) => setPrompt(idx, { design_element: e.target.value })}
-                />
+                >
+                  <option value="">— select —</option>
+                  {DESIGN_ELEMENT_OPTIONS.map((opt) => (
+                    <option key={opt} value={opt}>
+                      {opt}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div>
                 <label className="label">question_type</label>
-                <div className="flex flex-wrap gap-2">
-                  {questionTypeOptions.map((o) => (
-                    <button
-                      key={o.v}
-                      type="button"
-                      onClick={() => setPrompt(idx, { question_type: o.v })}
-                      className={
-                        "px-3 py-1.5 rounded-md border text-sm font-mono " +
-                        (p.question_type === o.v
-                          ? "bg-slate-900 text-white border-slate-900"
-                          : "bg-white text-slate-700 border-slate-300 hover:bg-slate-100")
-                      }
-                    >
-                      {o.label}
-                    </button>
+                <select
+                  className="input"
+                  value={p.question_type}
+                  onChange={(e) => changeQuestionType(idx, e.target.value as QuestionType)}
+                >
+                  <option value="">— select —</option>
+                  {QUESTION_TYPE_OPTIONS.map((opt) => (
+                    <option key={opt.v} value={opt.v}>
+                      {opt.label}
+                    </option>
                   ))}
-                </div>
+                </select>
               </div>
               <div className="md:col-span-2">
                 <label className="label">question</label>
@@ -147,54 +160,65 @@ export default function StepCompare({ value, onChange }: Props) {
               </div>
             </div>
 
-            <div className="border-t border-slate-200 pt-3 space-y-3">
-              <div className="text-xs uppercase tracking-wide text-slate-500">
-                Evaluation
+            {p.rubrics.length > 0 && (
+              <div className="border-t border-slate-200 pt-3 space-y-3">
+                <div className="text-xs uppercase tracking-wide text-slate-500">
+                  Rubrics ({p.rubrics.length})
+                </div>
+                {p.rubrics.map((r, rIdx) => (
+                  <div
+                    key={rIdx}
+                    className="border border-slate-200 rounded-md p-3 space-y-2 bg-slate-50"
+                  >
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+                      <div>
+                        <span className="text-slate-500">Artifact:</span>{" "}
+                        <code className="font-mono">{r.artifact}</code>
+                      </div>
+                      {r.dimension && (
+                        <div>
+                          <span className="text-slate-500">Dimension:</span>{" "}
+                          <span className="font-medium">{r.dimension}</span>
+                        </div>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div>
+                        <label className="label">points</label>
+                        <input
+                          className="input"
+                          type="number"
+                          value={r.points}
+                          onChange={(e) =>
+                            setRubric(idx, rIdx, { points: e.target.value })
+                          }
+                        />
+                      </div>
+                      <div>
+                        <label className="label">tolerance</label>
+                        <input
+                          className="input"
+                          value={r.tolerance}
+                          onChange={(e) =>
+                            setRubric(idx, rIdx, { tolerance: e.target.value })
+                          }
+                        />
+                      </div>
+                      <div className="md:col-span-2">
+                        <label className="label">criterion</label>
+                        <textarea
+                          className="input min-h-[60px]"
+                          value={r.criterion}
+                          onChange={(e) =>
+                            setRubric(idx, rIdx, { criterion: e.target.value })
+                          }
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div>
-                  <label className="label">artifact</label>
-                  <input
-                    className="input"
-                    value={p.artifact}
-                    onChange={(e) => setPrompt(idx, { artifact: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <label className="label">dimension</label>
-                  <input
-                    className="input"
-                    value={p.dimension}
-                    onChange={(e) => setPrompt(idx, { dimension: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <label className="label">points</label>
-                  <input
-                    className="input"
-                    type="number"
-                    value={p.points}
-                    onChange={(e) => setPrompt(idx, { points: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <label className="label">tolerance</label>
-                  <input
-                    className="input"
-                    value={p.tolerance}
-                    onChange={(e) => setPrompt(idx, { tolerance: e.target.value })}
-                  />
-                </div>
-                <div className="md:col-span-2">
-                  <label className="label">criterion</label>
-                  <textarea
-                    className="input min-h-[60px]"
-                    value={p.criterion}
-                    onChange={(e) => setPrompt(idx, { criterion: e.target.value })}
-                  />
-                </div>
-              </div>
-            </div>
+            )}
           </div>
         ))}
 

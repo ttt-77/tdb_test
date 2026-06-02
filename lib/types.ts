@@ -45,18 +45,57 @@ export type FieldAccuracy = "correct" | "partial" | "incorrect" | "missing" | ""
 
 export type QuestionType = "extraction_only" | "derivation_required" | "";
 
-export type PromptItem = {
-  id: string;
-  design_element: string;
-  question: string;
-  question_type: QuestionType;
-  // Evaluation criteria authored alongside the question:
+export type Rubric = {
   artifact: string;
   dimension: string;
   points: string;
   criterion: string;
   tolerance: string;
 };
+
+export type PromptItem = {
+  id: string;
+  design_element: string;
+  question: string;
+  question_type: QuestionType;
+  rubrics: Rubric[];
+};
+
+export const DESIGN_ELEMENT_OPTIONS = [
+  "Hypotheses/Endpoints",
+  "Multiplicity control",
+  "Sample size and power",
+  "Interim analyses",
+  "Others",
+] as const;
+
+export const QUESTION_TYPE_OPTIONS: { v: QuestionType; label: string }[] = [
+  { v: "extraction_only", label: "Extraction only" },
+  { v: "derivation_required", label: "Derivation required" },
+];
+
+export const blankRubric = (artifact = "", dimension = ""): Rubric => ({
+  artifact,
+  dimension,
+  points: "",
+  criterion: "",
+  tolerance: "",
+});
+
+export function rubricsForType(type: QuestionType): Rubric[] {
+  if (type === "extraction_only") {
+    return [blankRubric("output.json", "")];
+  }
+  if (type === "derivation_required") {
+    return [
+      blankRubric("output.json", "Inputs used"),
+      blankRubric("output.json", "Calculated value"),
+      blankRubric("output.json", "Method"),
+      blankRubric("output.R", "Reproducibility"),
+    ];
+  }
+  return [];
+}
 
 export type Comparison = {
   trial_id: string;
