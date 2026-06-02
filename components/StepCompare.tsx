@@ -26,6 +26,7 @@ const nextPromptId = (existing: PromptItem[]) => {
 const blankPrompt = (id: string): PromptItem => ({
   id,
   design_element: "",
+  design_element_other: "",
   question: "",
   question_type: "",
   rubrics: [],
@@ -133,6 +134,16 @@ export default function StepCompare({ value, onChange }: Props) {
                     </option>
                   ))}
                 </select>
+                {p.design_element === "Others" && (
+                  <input
+                    className="input mt-2"
+                    placeholder="Specify other design element"
+                    value={p.design_element_other}
+                    onChange={(e) =>
+                      setPrompt(idx, { design_element_other: e.target.value })
+                    }
+                  />
+                )}
               </div>
               <div>
                 <label className="label">question_type</label>

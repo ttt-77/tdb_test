@@ -56,6 +56,7 @@ export type Rubric = {
 export type PromptItem = {
   id: string;
   design_element: string;
+  design_element_other: string;
   question: string;
   question_type: QuestionType;
   rubrics: Rubric[];
