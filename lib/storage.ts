@@ -1,42 +1,40 @@
-// Storage backend: GitHub Issues (production) or local filesystem (dev fallback).
+// Storage backend: Hugging Face Dataset repo (production) or local filesystem (dev).
 //
-// In production set the following env vars (Vercel → Project → Settings → Environment Variables):
-//   GITHUB_TOKEN  — fine-grained PAT with Issues: read/write on the submissions repo
-//   GITHUB_OWNER  — repo owner (e.g. ttt-77)
-//   GITHUB_REPO   — repo name (e.g. tdb-intake-submissions)
+// In production set these env vars in Vercel:
+//   HF_TOKEN              — HF user access token with "Write" permission on the dataset repo
+//   HF_DATASET_REPO       — e.g. "ttt-77/tdb-intake-submissions"
+//   HF_DATASET_BRANCH     — optional, defaults to "main"
 //
-// If any of those are missing, writes go to ./data/submissions/<id>/*.json on disk.
+// If HF_TOKEN or HF_DATASET_REPO is missing, the code falls back to ./data/submissions/*.json
+// on disk so local development still works without HF credentials.
 
 import { promises as fs } from "fs";
 import path from "path";
 
-const token = process.env.GITHUB_TOKEN;
-const owner = process.env.GITHUB_OWNER;
-const repo = process.env.GITHUB_REPO;
-export const githubConfigured = !!(token && owner && repo);
+const HF_BASE = "https://huggingface.co";
+const HF_TOKEN = process.env.HF_TOKEN;
+const HF_DATASET = process.env.HF_DATASET_REPO;
+const HF_BRANCH = process.env.HF_DATASET_BRANCH || "main";
+
+export const hfConfigured = !!(HF_TOKEN && HF_DATASET);
 
 const safe = (s: string) => (s || "").trim().replace(/[^a-zA-Z0-9-_]/g, "_");
 
-async function gh<T = any>(pathname: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`https://api.github.com${pathname}`, {
-    ...init,
-    cache: "no-store",
-    headers: {
-      Accept: "application/vnd.github+json",
-      Authorization: `Bearer ${token}`,
-      "X-GitHub-Api-Version": "2022-11-28",
-      "Content-Type": "application/json",
-      ...(init?.headers || {}),
-    },
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`GitHub ${res.status}: ${text}`);
-  }
-  return res.json();
-}
+// ---- Types ----------------------------------------------------------------
 
-// ---- Submissions ----------------------------------------------------------
+export type SubmissionStatus = "pending" | "reviewed" | "needs_fix";
+
+export type SubmissionRecord = {
+  submissionId: string;        // == path inside the dataset repo, e.g. "submissions/foo.json"
+  submittedAt: string;
+  trial_id: string;
+  username: string;
+  status: SubmissionStatus;
+  reviewedAt?: string;
+  reviewer?: string;
+  reviewerNote?: string;
+  comparison: unknown;
+};
 
 export type CreateSubmissionInput = {
   trial_id: string;
@@ -45,95 +43,215 @@ export type CreateSubmissionInput = {
   comparison: unknown;
 };
 
-export type CreateSubmissionResult = { submissionId: string; url?: string };
+export type CreateSubmissionResult = {
+  submissionId: string;
+  url?: string;
+};
+
+export type SubmissionSummary = {
+  submissionId: string;
+  trial_id: string;
+  username: string;
+  submittedAt: string;
+  status: SubmissionStatus;
+  reviewedAt?: string;
+};
+
+// ---- HF helpers -----------------------------------------------------------
+
+async function hfCommit(
+  filePath: string,
+  contentBase64: string,
+  summary: string,
+): Promise<void> {
+  // HF commit API takes NDJSON: a header line, then one file line per upload.
+  const url = `${HF_BASE}/api/datasets/${HF_DATASET}/commit/${HF_BRANCH}`;
+  const body =
+    JSON.stringify({ key: "header", value: { summary, description: "" } }) +
+    "\n" +
+    JSON.stringify({
+      key: "file",
+      value: { path: filePath, encoding: "base64", content: contentBase64 },
+    }) +
+    "\n";
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${HF_TOKEN}`,
+      "Content-Type": "application/x-ndjson",
+    },
+    body,
+  });
+  if (!res.ok) {
+    throw new Error(`HF commit failed (${res.status}): ${await res.text()}`);
+  }
+}
+
+async function hfReadFile(filePath: string): Promise<string | null> {
+  const url = `${HF_BASE}/datasets/${HF_DATASET}/resolve/${HF_BRANCH}/${filePath}`;
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${HF_TOKEN}` },
+    cache: "no-store",
+  });
+  if (!res.ok) return null;
+  return res.text();
+}
+
+async function hfListSubmissions(): Promise<string[]> {
+  const url = `${HF_BASE}/api/datasets/${HF_DATASET}/tree/${HF_BRANCH}/submissions`;
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${HF_TOKEN}` },
+    cache: "no-store",
+  });
+  if (res.status === 404) return [];
+  if (!res.ok) {
+    throw new Error(`HF tree failed (${res.status}): ${await res.text()}`);
+  }
+  const items = (await res.json()) as Array<{ path: string; type: string }>;
+  return items
+    .filter((i) => i.type === "file" && i.path.endsWith(".json"))
+    .map((i) => i.path);
+}
+
+// ---- Public API -----------------------------------------------------------
 
 export async function createSubmission(
   input: CreateSubmissionInput,
-): Promise<CreateSubmissionResult & { fileUrl?: string }> {
-  if (githubConfigured) {
-    // 1. Commit the raw submission JSON to the repo.
-    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-    const baseName = `${safe(input.trial_id)}__${safe(input.username)}__${stamp}`;
-    const filePath = `submissions/${baseName}.json`;
-    const fileContent = JSON.stringify(input, null, 2);
-    const commitMsg = `Add submission: ${input.trial_id} — ${input.username}`;
-    const fileRes = await gh<{ content: { html_url: string } }>(
-      `/repos/${owner}/${repo}/contents/${encodeURIComponent(filePath).replace(/%2F/g, "/")}`,
-      {
-        method: "PUT",
-        body: JSON.stringify({
-          message: commitMsg,
-          content: Buffer.from(fileContent, "utf-8").toString("base64"),
-        }),
-      },
-    );
+): Promise<CreateSubmissionResult> {
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const fileName = `${safe(input.trial_id)}__${safe(input.username)}__${stamp}.json`;
+  const submissionId = `submissions/${fileName}`;
 
-    // 2. Open an issue referencing the file.
-    const title = `[Intake] ${input.trial_id} — ${input.username}`;
-    const body = renderIssueBody(input, fileRes.content.html_url);
-    const issue = await gh<{ number: number; html_url: string }>(
-      `/repos/${owner}/${repo}/issues`,
-      {
-        method: "POST",
-        body: JSON.stringify({ title, body, labels: ["intake-submission"] }),
-      },
+  const record: SubmissionRecord = {
+    submissionId,
+    submittedAt: input.submittedAt,
+    trial_id: input.trial_id,
+    username: input.username,
+    status: "pending",
+    comparison: input.comparison,
+  };
+  const content = JSON.stringify(record, null, 2);
+
+  if (hfConfigured) {
+    await hfCommit(
+      submissionId,
+      Buffer.from(content, "utf-8").toString("base64"),
+      `Add submission: ${input.trial_id} — ${input.username}`,
     );
     return {
-      submissionId: String(issue.number),
-      url: issue.html_url,
-      fileUrl: fileRes.content.html_url,
+      submissionId,
+      url: `${HF_BASE}/datasets/${HF_DATASET}/blob/${HF_BRANCH}/${submissionId}`,
     };
   }
 
-  // local fs fallback
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const submissionId = `${safe(input.trial_id)}__${safe(input.username)}__${stamp}`;
-  const dir = path.join(process.cwd(), "data", "submissions", submissionId);
+  const dir = path.join(process.cwd(), "data", "submissions");
   await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(
-    path.join(dir, "prompts.json"),
-    JSON.stringify({ ...input, submissionId }, null, 2),
-    "utf-8",
-  );
+  await fs.writeFile(path.join(dir, fileName), content, "utf-8");
   return { submissionId };
 }
 
-function renderIssueBody(input: CreateSubmissionInput, fileUrl?: string): string {
-  const c = input.comparison as { prompts?: any[] };
-  const rows = (c?.prompts ?? [])
-    .map(
-      (p: any) =>
-        `| \`${p.id}\` | ${escapeCell(p.design_element)} | ${escapeCell(p.question)} | \`${
-          p.question_type
-        }\` |`,
-    )
-    .join("\n");
-  const table =
-    rows.length > 0
-      ? `| id | design_element | question | question_type |\n|---|---|---|---|\n${rows}`
-      : "_No questions submitted._";
+export async function listSubmissions(): Promise<SubmissionSummary[]> {
+  if (hfConfigured) {
+    const paths = await hfListSubmissions();
+    const records = await Promise.all(
+      paths.map(async (p) => {
+        const text = await hfReadFile(p);
+        if (!text) return null;
+        try {
+          const r = JSON.parse(text) as SubmissionRecord;
+          return summarize(r);
+        } catch {
+          return null;
+        }
+      }),
+    );
+    return records.filter((x): x is SubmissionSummary => x !== null);
+  }
 
-  return [
-    `**Submitted:** ${input.submittedAt}`,
-    `**trial_id:** \`${input.trial_id}\``,
-    `**username:** \`${input.username}\``,
-    fileUrl ? `**Raw submission file:** ${fileUrl}` : "",
-    "",
-    "### Questions",
-    "",
-    table,
-    "",
-    "### Raw submission",
-    "",
-    "```json",
-    JSON.stringify(input, null, 2),
-    "```",
-  ]
-    .filter(Boolean)
-    .join("\n");
+  const dir = path.join(process.cwd(), "data", "submissions");
+  let files: string[] = [];
+  try {
+    files = await fs.readdir(dir);
+  } catch {
+    return [];
+  }
+  const records = await Promise.all(
+    files
+      .filter((f) => f.endsWith(".json"))
+      .map(async (f) => {
+        try {
+          const raw = await fs.readFile(path.join(dir, f), "utf-8");
+          return summarize(JSON.parse(raw));
+        } catch {
+          return null;
+        }
+      }),
+  );
+  return records.filter((x): x is SubmissionSummary => x !== null);
 }
 
-function escapeCell(s: string | undefined): string {
-  return (s || "").replace(/\|/g, "\\|").replace(/\n/g, " ");
+export async function getSubmission(submissionId: string): Promise<SubmissionRecord | null> {
+  if (!submissionId.startsWith("submissions/")) return null;
+  if (hfConfigured) {
+    const txt = await hfReadFile(submissionId);
+    if (!txt) return null;
+    try {
+      return JSON.parse(txt);
+    } catch {
+      return null;
+    }
+  }
+  const fullPath = path.join(process.cwd(), "data", submissionId);
+  try {
+    return JSON.parse(await fs.readFile(fullPath, "utf-8"));
+  } catch {
+    return null;
+  }
 }
 
+export async function updateSubmission(
+  submissionId: string,
+  patch: Partial<Pick<SubmissionRecord, "status" | "reviewer" | "reviewerNote">>,
+): Promise<SubmissionRecord | null> {
+  const existing = await getSubmission(submissionId);
+  if (!existing) return null;
+  const updated: SubmissionRecord = {
+    ...existing,
+    ...patch,
+    reviewedAt: patch.status ? new Date().toISOString() : existing.reviewedAt,
+  };
+  const content = JSON.stringify(updated, null, 2);
+
+  if (hfConfigured) {
+    await hfCommit(
+      submissionId,
+      Buffer.from(content, "utf-8").toString("base64"),
+      `Update: ${submissionId.split("/").pop()}`,
+    );
+    return updated;
+  }
+  const fullPath = path.join(process.cwd(), "data", submissionId);
+  await fs.writeFile(fullPath, content, "utf-8");
+  return updated;
+}
+
+function summarize(r: SubmissionRecord): SubmissionSummary {
+  return {
+    submissionId: r.submissionId,
+    trial_id: r.trial_id,
+    username: r.username,
+    submittedAt: r.submittedAt,
+    status: r.status ?? "pending",
+    reviewedAt: r.reviewedAt,
+  };
+}
+
+// ---- Admin gate (shared password) ----------------------------------------
+
+export const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "";
+
+export function isAdminAuthorized(req: Request): boolean {
+  if (!ADMIN_PASSWORD) return true; // no password set = open (dev mode)
+  const header = req.headers.get("x-admin-password") || "";
+  return header === ADMIN_PASSWORD;
+}

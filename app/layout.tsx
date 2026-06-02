@@ -12,9 +12,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <div className="min-h-screen">
           <header className="border-b border-slate-200 bg-white">
-            <div className="mx-auto max-w-4xl px-6 py-4">
-              <h1 className="text-lg font-semibold">Clinical Trial AI Reproduction Benchmark</h1>
-              <p className="text-xs text-slate-500">Statistician intake & evaluation form</p>
+            <div className="mx-auto max-w-4xl px-6 py-4 flex items-center justify-between">
+              <div>
+                <h1 className="text-lg font-semibold">Clinical Trial AI Reproduction Benchmark</h1>
+                <p className="text-xs text-slate-500">Statistician intake & evaluation form</p>
+              </div>
+              <a href="/admin" className="text-xs text-slate-500 hover:text-slate-900 underline">
+                Admin
+              </a>
             </div>
           </header>
           <main className="mx-auto max-w-4xl px-6 py-8">{children}</main>
