@@ -5,23 +5,24 @@ Run locally:
 
 Deployed to Hugging Face Space; submissions are committed to an HF Dataset repo.
 See README.md for setup.
+
+State model
+-----------
+`st.session_state.questions` holds only the STRUCTURE of each question:
+``{"_uid": int, "rubrics": [{"artifact", "dimension"}, ...]}``. All editable
+*values* (id, design_element, question, points, ...) live in session_state under
+widget keys derived from the question's stable uid. session_state is the single
+source of truth — widgets use `key=` only (no `value=`/`index=`), which avoids
+the one-rerun-lag ("type twice") bug that comes from mixing value= with key=.
 """
 
 from __future__ import annotations
 
 import json
-from typing import List
 
 import streamlit as st
 
-from lib.schema import (
-    DESIGN_ELEMENTS,
-    QUESTION_TYPES,
-    Question,
-    blank_question,
-    next_question_id,
-    rubrics_for_type,
-)
+from lib.schema import DESIGN_ELEMENTS, QUESTION_TYPES, rubrics_for_type
 from lib.storage import (
     get_submission,
     hf_configured,
@@ -30,30 +31,52 @@ from lib.storage import (
     save_submission,
 )
 
-st.set_page_config(
-    page_title="TDB Intake",
-    page_icon="🔬",
-    layout="centered",
-)
+st.set_page_config(page_title="TDB Intake", page_icon="🔬", layout="centered")
+
+_STATUS_EMOJI = {"pending": "🟡", "reviewed": "🟢", "needs_fix": "🔴"}
+
+
+# ------------- widget-key helpers ----------------------------------------
+
+def kq(uid: int, field: str) -> str:
+    return f"q{uid}_{field}"
+
+
+def kr(uid: int, j: int, field: str) -> str:
+    return f"q{uid}_r{j}_{field}"
+
+
+def _next_uid() -> int:
+    st.session_state.uid_counter += 1
+    return st.session_state.uid_counter
+
+
+def _next_question_id() -> str:
+    nums = []
+    for q in st.session_state.questions:
+        qid = st.session_state.get(kq(q["_uid"], "id"), "")
+        if qid.startswith("P-"):
+            try:
+                nums.append(int(qid[2:]))
+            except ValueError:
+                pass
+    return f"P-{(max(nums) + 1 if nums else 1):03d}"
+
 
 # ------------- state init ------------------------------------------------
 
 if "questions" not in st.session_state:
-    st.session_state.questions = []  # type: List[Question]
+    st.session_state.questions = []
+if "uid_counter" not in st.session_state:
+    st.session_state.uid_counter = 0
 if "trial_id" not in st.session_state:
     st.session_state.trial_id = ""
 if "username" not in st.session_state:
     st.session_state.username = ""
 if "last_result" not in st.session_state:
     st.session_state.last_result = None
-# Bumped whenever we replace the questions wholesale (load / reset) so the
-# per-question widgets get fresh keys and actually show the new values.
-if "form_nonce" not in st.session_state:
-    st.session_state.form_nonce = 0
-# Versions found for the current trial_id + username (after "Find versions").
 if "versions" not in st.session_state:
     st.session_state.versions = []
-# All reviews across ALL versions of the current trial_id + username (history).
 if "pair_reviews" not in st.session_state:
     st.session_state.pair_reviews = []
 if "loaded_version" not in st.session_state:
@@ -63,29 +86,72 @@ if "loaded_version" not in st.session_state:
 # ------------- callbacks -------------------------------------------------
 
 def _add_question() -> None:
-    qid = next_question_id(st.session_state.questions)
-    st.session_state.questions.append(blank_question(qid))
+    new_id = _next_question_id()
+    uid = _next_uid()
+    st.session_state.questions.append({"_uid": uid, "rubrics": []})
+    st.session_state[kq(uid, "id")] = new_id
 
 
 def _remove_question(idx: int) -> None:
     st.session_state.questions.pop(idx)
 
 
-def _change_question_type(q_idx: int, new_type: str) -> None:
-    """Regenerate rubrics when question_type changes."""
-    q = st.session_state.questions[q_idx]
-    if q["question_type"] != new_type:
-        q["question_type"] = new_type
-        q["rubrics"] = rubrics_for_type(new_type)
+def _on_type_change(uid: int) -> None:
+    """Regenerate rubric structure (and seed blank value fields) on type change."""
+    qt = st.session_state.get(kq(uid, "qt"), "")
+    q = next((x for x in st.session_state.questions if x["_uid"] == uid), None)
+    if q is None:
+        return
+    # Clear old rubric value fields.
+    for j in range(len(q["rubrics"])):
+        for f in ("points", "tolerance", "criterion"):
+            st.session_state.pop(kr(uid, j, f), None)
+    # New structure (artifact + dimension fixed by type).
+    new_rubrics = [
+        {"artifact": r["artifact"], "dimension": r["dimension"]}
+        for r in rubrics_for_type(qt)
+    ]
+    q["rubrics"] = new_rubrics
+    for j in range(len(new_rubrics)):
+        for f in ("points", "tolerance", "criterion"):
+            st.session_state[kr(uid, j, f)] = ""
+
+
+def _build_prompts() -> list:
+    """Assemble the questions payload from session_state (the source of truth)."""
+    prompts = []
+    for q in st.session_state.questions:
+        uid = q["_uid"]
+        de = st.session_state.get(kq(uid, "de"), "")
+        prompts.append(
+            {
+                "id": st.session_state.get(kq(uid, "id"), ""),
+                "design_element": de,
+                "design_element_other": (
+                    st.session_state.get(kq(uid, "deother"), "") if de == "Others" else ""
+                ),
+                "question": st.session_state.get(kq(uid, "question"), ""),
+                "question_type": st.session_state.get(kq(uid, "qt"), ""),
+                "rubrics": [
+                    {
+                        "artifact": rub["artifact"],
+                        "dimension": rub["dimension"],
+                        "points": st.session_state.get(kr(uid, j, "points"), ""),
+                        "tolerance": st.session_state.get(kr(uid, j, "tolerance"), ""),
+                        "criterion": st.session_state.get(kr(uid, j, "criterion"), ""),
+                    }
+                    for j, rub in enumerate(q["rubrics"])
+                ],
+            }
+        )
+    return prompts
 
 
 def _save_draft() -> None:
-    """Stash form into session_state (already there); just signal."""
     st.session_state.last_result = {"kind": "draft", "msg": "Draft saved in this browser session."}
 
 
 def _find_versions() -> None:
-    """Look up all saved versions for the current trial_id + username."""
     trial_id = st.session_state.trial_id.strip()
     username = st.session_state.username.strip()
     if not trial_id or not username:
@@ -118,7 +184,6 @@ def _find_versions() -> None:
 
 
 def _load_selected() -> None:
-    """Load the version chosen in the version selectbox into the form."""
     sub_id = st.session_state.get("version_select")
     if not sub_id:
         st.session_state.last_result = {"kind": "error", "msg": "Pick a version first."}
@@ -132,8 +197,26 @@ def _load_selected() -> None:
         st.session_state.last_result = {"kind": "error", "msg": "That version could not be loaded."}
         return
     prompts = (record.get("comparison") or {}).get("prompts") or []
-    st.session_state.questions = prompts
-    st.session_state.form_nonce += 1  # force question widgets to refresh
+
+    new_questions = []
+    for qp in prompts:
+        uid = _next_uid()
+        rubrics = [
+            {"artifact": r.get("artifact", ""), "dimension": r.get("dimension", "")}
+            for r in (qp.get("rubrics") or [])
+        ]
+        new_questions.append({"_uid": uid, "rubrics": rubrics})
+        st.session_state[kq(uid, "id")] = qp.get("id", "")
+        st.session_state[kq(uid, "de")] = qp.get("design_element", "")
+        st.session_state[kq(uid, "deother")] = qp.get("design_element_other", "")
+        st.session_state[kq(uid, "qt")] = qp.get("question_type", "")
+        st.session_state[kq(uid, "question")] = qp.get("question", "")
+        for j, r in enumerate(qp.get("rubrics") or []):
+            st.session_state[kr(uid, j, "points")] = r.get("points", "")
+            st.session_state[kr(uid, j, "tolerance")] = r.get("tolerance", "")
+            st.session_state[kr(uid, j, "criterion")] = r.get("criterion", "")
+
+    st.session_state.questions = new_questions
     st.session_state.loaded_version = record.get("version", "")
     st.session_state.last_result = {
         "kind": "success",
@@ -148,11 +231,10 @@ def _submit() -> None:
     if not trial_id or not username:
         st.session_state.last_result = {"kind": "error", "msg": "trial_id and username are required."}
         return
-
     comparison = {
         "trial_id": trial_id,
         "username": username,
-        "prompts": st.session_state.questions,
+        "prompts": _build_prompts(),
     }
     try:
         result = save_submission(trial_id, username, comparison)
@@ -162,14 +244,27 @@ def _submit() -> None:
             "Use “Find versions” to see all versions.",
             "url": result.get("url"),
         }
-        # Refresh the version list so the new version shows up.
         try:
             st.session_state.versions = list_versions(trial_id, username)
         except Exception:
             pass
-        # Keep the form populated so the user can continue editing.
     except Exception as e:
         st.session_state.last_result = {"kind": "error", "msg": f"Submit failed: {e}"}
+
+
+def _render_review_lines(reviews: list) -> None:
+    """Render reviews as markdown bullets, newest first (with version tag)."""
+    for rev in reversed(reviews):
+        emoji = _STATUS_EMOJI.get(rev.get("status", ""), "⚪")
+        ver = rev.get("version", "")
+        vtag = f" · on `v{ver}`" if ver else ""
+        line = (
+            f"- {emoji} **{rev.get('status','')}** — "
+            f"{rev.get('reviewer') or 'anon'} · _{rev.get('at','')}_{vtag}"
+        )
+        if rev.get("note"):
+            line += f"  \n  Reviews: {rev['note']}"
+        st.markdown(line)
 
 
 # ------------- header ----------------------------------------------------
@@ -196,8 +291,6 @@ st.button(
     on_click=_find_versions,
     help="List all previously submitted versions for this trial_id + username.",
 )
-
-_STATUS_EMOJI = {"pending": "🟡", "reviewed": "🟢", "needs_fix": "🔴"}
 
 versions = st.session_state.versions
 if versions:
@@ -228,25 +321,9 @@ if versions:
         st.write("")
         st.button("Load selected version", on_click=_load_selected, use_container_width=True)
 
-def _render_review_lines(reviews: list) -> None:
-    """Render a list of reviews as markdown bullets, newest first (with version)."""
-    for rev in reversed(reviews):
-        emoji = _STATUS_EMOJI.get(rev.get("status", ""), "⚪")
-        ver = rev.get("version", "")
-        vtag = f" · on `v{ver}`" if ver else ""
-        line = (
-            f"- {emoji} **{rev.get('status','')}** — "
-            f"{rev.get('reviewer') or 'anon'} · _{rev.get('at','')}_{vtag}"
-        )
-        if rev.get("note"):
-            line += f"  \n  Reviews: {rev['note']}"
-        st.markdown(line)
-
-
-# Show OVERALL reviewer feedback across ALL versions of this trial (per-question
-# feedback is shown inside each question block below).
-pair_review_list = st.session_state.pair_reviews
-overall_history = [r for r in pair_review_list if not r.get("question_id")]
+# Overall reviewer feedback across all versions (per-question feedback is shown
+# inside each question block below).
+overall_history = [r for r in st.session_state.pair_reviews if not r.get("question_id")]
 if overall_history:
     with st.container(border=True):
         st.markdown(f"**Overall reviewer feedback — all versions ({len(overall_history)})**")
@@ -261,68 +338,46 @@ st.subheader("Questions")
 if not st.session_state.questions:
     st.caption('No questions yet. Click "Add question" below to begin.')
 
-n = st.session_state.form_nonce  # widget-key namespace; changes on load/reset
+de_options = [""] + DESIGN_ELEMENTS
+qt_options = [""] + QUESTION_TYPES
 
 for i, q in enumerate(st.session_state.questions):
+    uid = q["_uid"]
     with st.container(border=True):
         head_l, head_r = st.columns([6, 1])
         with head_l:
-            new_id = st.text_input(
-                "id",
-                value=q["id"],
-                key=f"q_{n}_{i}_id",
-                label_visibility="collapsed",
-            )
-            q["id"] = new_id
+            st.text_input("id", key=kq(uid, "id"), label_visibility="collapsed")
         with head_r:
-            st.button("Remove", key=f"rm_{n}_{i}", on_click=_remove_question, args=(i,))
+            st.button("Remove", key=f"rm_{uid}", on_click=_remove_question, args=(i,))
 
         col1, col2 = st.columns(2)
         with col1:
-            de_options = [""] + DESIGN_ELEMENTS
-            de_idx = de_options.index(q["design_element"]) if q["design_element"] in de_options else 0
-            new_de = st.selectbox(
+            st.selectbox(
                 "design_element",
                 options=de_options,
-                index=de_idx,
-                key=f"q_{n}_{i}_de",
+                key=kq(uid, "de"),
                 format_func=lambda x: "— select —" if x == "" else x,
             )
-            q["design_element"] = new_de
-            if new_de == "Others":
-                q["design_element_other"] = st.text_input(
-                    "Specify other design element",
-                    value=q.get("design_element_other", ""),
-                    key=f"q_{n}_{i}_de_other",
-                )
-            else:
-                q["design_element_other"] = ""
-
+            if st.session_state.get(kq(uid, "de")) == "Others":
+                st.text_input("Specify other design element", key=kq(uid, "deother"))
         with col2:
-            qt_options = [""] + QUESTION_TYPES
-            qt_idx = qt_options.index(q["question_type"]) if q["question_type"] in qt_options else 0
-            new_qt = st.selectbox(
+            st.selectbox(
                 "question_type",
                 options=qt_options,
-                index=qt_idx,
-                key=f"q_{n}_{i}_qt",
+                key=kq(uid, "qt"),
                 format_func=lambda x: "— select —" if x == "" else x,
+                on_change=_on_type_change,
+                args=(uid,),
             )
-            # If question_type changed, regenerate rubrics via callback-like pattern.
-            if new_qt != q["question_type"]:
-                _change_question_type(i, new_qt)
 
-        new_question = st.text_input(
-            "question",
-            value=q["question"],
-            key=f"q_{n}_{i}_question",
-            placeholder="e.g., Alpha allocated to PFS",
+        st.text_input(
+            "question", key=kq(uid, "question"), placeholder="e.g., Alpha allocated to PFS"
         )
-        q["question"] = new_question
 
-        # Reviewer feedback for this question across ALL versions of the trial.
+        # Reviewer feedback for this question across all versions of the trial.
+        qid_val = st.session_state.get(kq(uid, "id"), "")
         q_reviews = [
-            r for r in st.session_state.pair_reviews if r.get("question_id") == q["id"]
+            r for r in st.session_state.pair_reviews if r.get("question_id") == qid_val
         ]
         if q_reviews:
             latest_status = q_reviews[-1].get("status", "")  # oldest-first list
@@ -340,32 +395,19 @@ for i, q in enumerate(st.session_state.questions):
 
         if q["rubrics"]:
             st.markdown(f"**Rubrics ({len(q['rubrics'])})**")
-            for j, r in enumerate(q["rubrics"]):
+            for j, rub in enumerate(q["rubrics"]):
                 with st.container(border=True):
-                    meta_parts = [f"**Artifact:** `{r['artifact']}`"]
-                    if r["dimension"]:
-                        meta_parts.append(f"**Dimension:** {r['dimension']}")
+                    meta_parts = [f"**Artifact:** `{rub['artifact']}`"]
+                    if rub["dimension"]:
+                        meta_parts.append(f"**Dimension:** {rub['dimension']}")
                     st.markdown(" · ".join(meta_parts))
 
                     rc1, rc2 = st.columns(2)
                     with rc1:
-                        r["points"] = st.text_input(
-                            "points",
-                            value=r["points"],
-                            key=f"q_{n}_{i}_r_{j}_points",
-                        )
+                        st.text_input("points", key=kr(uid, j, "points"))
                     with rc2:
-                        r["tolerance"] = st.text_input(
-                            "tolerance",
-                            value=r["tolerance"],
-                            key=f"q_{n}_{i}_r_{j}_tolerance",
-                        )
-                    r["criterion"] = st.text_area(
-                        "criterion",
-                        value=r["criterion"],
-                        key=f"q_{n}_{i}_r_{j}_criterion",
-                        height=80,
-                    )
+                        st.text_input("tolerance", key=kr(uid, j, "tolerance"))
+                    st.text_area("criterion", key=kr(uid, j, "criterion"), height=80)
 
 st.button("+ Add question", on_click=_add_question)
 
@@ -398,7 +440,7 @@ with st.expander("Debug: current form state (JSON)"):
             {
                 "trial_id": st.session_state.trial_id,
                 "username": st.session_state.username,
-                "prompts": st.session_state.questions,
+                "prompts": _build_prompts(),
             },
             indent=2,
             ensure_ascii=False,
