@@ -79,10 +79,6 @@ def _base_id(submission_id: str) -> str:
     return s
 
 
-def _legacy_base_id(submission_id: str) -> str:
-    """'submissions/foo.json' -> 'foo'"""
-    name = submission_id.split("/")[-1]
-    return name[:-5] if name.endswith(".json") else name
 
 
 # ---- low-level read/write/list (HF or local) -----------------------------
@@ -222,11 +218,19 @@ def list_versions(
     return out
 
 
-def add_review(submission_id: str, status: str, reviewer: str, note: str = "") -> Dict[str, Any]:
+def add_review(
+    submission_id: str,
+    status: str,
+    reviewer: str,
+    note: str = "",
+    question_id: str = "",
+) -> Dict[str, Any]:
     """Append a review as its own file under reviews/<base>/.
 
     Each review is a new file (never overwrites), so concurrent reviews by
-    different people cannot conflict.
+    different people cannot conflict. If ``question_id`` is given, the review
+    targets that specific question; otherwise it is an overall (whole-version)
+    review.
     """
     base = _base_id(submission_id)
     now = _now_iso()
@@ -236,9 +240,18 @@ def add_review(submission_id: str, status: str, reviewer: str, note: str = "") -
         "reviewer": reviewer,
         "status": status,
         "note": note,
+        "question_id": question_id,
     }
-    review_path = f"{REVIEWS_PREFIX}/{base}/{_stamp(now)}__{_safe(reviewer) or 'anon'}.json"
-    _write_json(review_path, review, f"Review ({status}) by {reviewer or 'anon'} on {base}")
+    qtag = _safe(question_id) if question_id else "all"
+    review_path = (
+        f"{REVIEWS_PREFIX}/{base}/{_stamp(now)}__{_safe(reviewer) or 'anon'}__{qtag}.json"
+    )
+    target = f"Q {question_id}" if question_id else "overall"
+    _write_json(
+        review_path,
+        review,
+        f"Review ({status}, {target}) by {reviewer or 'anon'} on {base}",
+    )
     return review
 
 
@@ -319,9 +332,11 @@ def list_submissions() -> List[Dict[str, Any]]:
         sub = _read_json(sp)
         if not sub:
             continue
-        # Reviews on the latest version drive the current status.
+        # Overall reviews (not tied to a question) on the latest version drive
+        # the current status.
         reviews = list_reviews(sp, all_files=files)
-        latest = reviews[-1] if reviews else None
+        overall = [r for r in reviews if not r.get("question_id")]
+        latest = overall[-1] if overall else None
         # All reviews across every version of this trial (tagged with version).
         all_reviews = list_pair_reviews(key, all_files=files)
         result.append(

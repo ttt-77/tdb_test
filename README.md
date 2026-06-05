@@ -24,7 +24,7 @@ A Streamlit intake form for trial statisticians. Submissions are saved to a **Hu
     - `derivation_required` → 4 rubrics: `output.json` × {Inputs used, Calculated value, Method} + `output.R` × {Reproducibility}
   - Each rubric collects `points`, `tolerance`, `criterion`.
   - **Versions** — every Submit saves a new version. Re-enter the same `trial_id` + `username`, click **Find versions**, pick one, and **Load selected version** to pull it back into the form for editing; Submit then saves a new version.
-- **Admin page (`pages/1_Admin.py`)** — password-gated review console. Shows **only the latest version of each trial** (one row per `trial_id` + `username`), but the review history covers **all versions** of that trial (each review tagged with the version it was made on). The current status reflects the latest version's most recent review. New reviews are added to the latest version. Each review is its own file under `reviews/<trial>__<user>/<version>/`. (Submitters can still see and load all their own versions on the form.)
+- **Admin page (`pages/1_Admin.py`)** — password-gated review console. Shows **only the latest version of each trial** (one row per `trial_id` + `username`). The questionnaire is rendered in the same layout as the form (read-only). Reviewers can add reviews **per question** *and* an overall review; review history covers **all versions** (each review tagged with its version, and per-question reviews tied to their question). The trial's current status reflects the latest version's most recent overall review. Each review is its own file under `reviews/<trial>__<user>/<version>/`. (Submitters can still see and load all their own versions on the form.)
 
 ## Run locally
 
@@ -140,16 +140,18 @@ version**, edit, then **Submit** (which saves a new version).
 
 ```json
 {
-  "submissionId": "submissions/NCT0001__jdoe__2026-06-01T...Z.json",
-  "at": "2026-06-01T16:00:00+00:00",
+  "submissionId": "submissions/NCT0001__jdoe/2026-06-04T...Z.json",
+  "at": "2026-06-04T16:00:00+00:00",
   "reviewer": "Dr. Lee",
   "status": "needs_fix",
-  "note": "still missing the power assumption"
+  "note": "still missing the power assumption",
+  "question_id": "P-002"
 }
 ```
 
-The **current status** of a submission is derived as the most recent review's
-status (or `pending` if it has no reviews yet).
+`question_id` ties the review to a specific question; an empty `question_id`
+means an overall (whole-version) review. The trial's **current status** is the
+most recent *overall* review on the latest version (or `pending` if none).
 
 ### Load everything in Python
 

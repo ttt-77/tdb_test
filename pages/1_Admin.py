@@ -38,38 +38,114 @@ def _md_cell(s: str) -> str:
     return str(s or "").replace("|", "\\|").replace("\n", " ")
 
 
-def render_questions(submission: dict) -> None:
-    """Render the questionnaire in a readable (non-JSON) format."""
+def _render_question_reviews(qreviews: list, current_version: str) -> None:
+    """Show the review thread for a single question (newest first)."""
+    if not qreviews:
+        st.caption("No reviews for this question yet.")
+        return
+    for rev in reversed(qreviews):
+        rev_version = rev.get("version", "")
+        cur = "  _(current)_" if rev_version == current_version else ""
+        st.markdown(
+            f"- {status_badge(rev.get('status', ''))} — "
+            f"**{rev.get('reviewer') or 'anon'}** · _{rev.get('at', '')}_ "
+            f"· on `v{rev_version}`{cur}"
+            + (f"  \n  Reviews: {rev.get('note')}" if rev.get("note") else "")
+        )
+
+
+def render_questions(
+    submission: dict, all_reviews: list, submission_id: str, current_version: str
+) -> None:
+    """Render the questionnaire in the app's layout, with a per-question
+    review thread and an add-review form for each question."""
     prompts = (submission.get("comparison") or {}).get("prompts") or []
     st.markdown(f"#### Questions ({len(prompts)})")
     if not prompts:
         st.caption("No questions in this submission.")
         return
+
     for q in prompts:
-        de = q.get("design_element", "")
-        if de == "Others" and q.get("design_element_other"):
-            de = f"Others: {q['design_element_other']}"
-        st.markdown(
-            f"**`{q.get('id', '')}` · {de or '—'} · "
-            f"`{q.get('question_type', '') or '—'}`**"
-        )
-        st.markdown(f"> {q.get('question', '') or '_(no question text)_'}")
-        rubrics = q.get("rubrics") or []
-        if rubrics:
-            header = (
-                "| artifact | dimension | points | tolerance | criterion |\n"
-                "|---|---|---|---|---|\n"
+        qid = q.get("id", "")
+        with st.container(border=True):
+            st.markdown(f"**`{qid}`**")
+            c1, c2 = st.columns(2)
+            with c1:
+                de = q.get("design_element", "") or "—"
+                if q.get("design_element") == "Others" and q.get("design_element_other"):
+                    de = f"Others: {q['design_element_other']}"
+                st.text_input(
+                    "design_element", value=de, disabled=True,
+                    key=f"de_{submission_id}_{qid}",
+                )
+            with c2:
+                st.text_input(
+                    "question_type", value=q.get("question_type", "") or "—",
+                    disabled=True, key=f"qt_{submission_id}_{qid}",
+                )
+            st.text_input(
+                "question", value=q.get("question", ""), disabled=True,
+                key=f"qq_{submission_id}_{qid}",
             )
-            rows = "\n".join(
-                f"| `{_md_cell(r.get('artifact'))}` "
-                f"| {_md_cell(r.get('dimension')) or '—'} "
-                f"| {_md_cell(r.get('points')) or '—'} "
-                f"| {_md_cell(r.get('tolerance')) or '—'} "
-                f"| {_md_cell(r.get('criterion')) or '—'} |"
-                for r in rubrics
-            )
-            st.markdown(header + rows)
-        st.markdown("")  # spacing
+
+            rubrics = q.get("rubrics") or []
+            if rubrics:
+                st.markdown(f"**Rubrics ({len(rubrics)})**")
+                for j, r in enumerate(rubrics):
+                    with st.container(border=True):
+                        meta = f"**Artifact:** `{r.get('artifact', '')}`"
+                        if r.get("dimension"):
+                            meta += f" · **Dimension:** {r['dimension']}"
+                        st.markdown(meta)
+                        rc1, rc2 = st.columns(2)
+                        with rc1:
+                            st.text_input(
+                                "points", value=r.get("points", ""), disabled=True,
+                                key=f"pt_{submission_id}_{qid}_{j}",
+                            )
+                        with rc2:
+                            st.text_input(
+                                "tolerance", value=r.get("tolerance", ""), disabled=True,
+                                key=f"to_{submission_id}_{qid}_{j}",
+                            )
+                        st.text_area(
+                            "criterion", value=r.get("criterion", ""), disabled=True,
+                            key=f"cr_{submission_id}_{qid}_{j}", height=70,
+                        )
+
+            # ---- per-question reviews ----
+            qreviews = [r for r in all_reviews if r.get("question_id") == qid]
+            st.markdown(f"**Reviews for this question ({len(qreviews)})**")
+            _render_question_reviews(qreviews, current_version)
+
+            with st.form(f"qrev_{submission_id}_{qid}"):
+                new_status = st.radio(
+                    "Status", options=VALID_STATUSES, horizontal=True,
+                    key=f"qst_{submission_id}_{qid}",
+                )
+                fc1, fc2 = st.columns([1, 2])
+                with fc1:
+                    reviewer = st.text_input(
+                        "Your name", key=f"qrv_{submission_id}_{qid}"
+                    )
+                with fc2:
+                    note = st.text_input(
+                        "Comment", key=f"qnt_{submission_id}_{qid}"
+                    )
+                if st.form_submit_button("Add review for this question", type="primary"):
+                    if not reviewer.strip():
+                        st.error("Please enter your name.")
+                    else:
+                        try:
+                            add_review(
+                                submission_id, status=new_status,
+                                reviewer=reviewer.strip(), note=note.strip(),
+                                question_id=qid,
+                            )
+                            st.success(f"Review added for {qid}.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Failed: {e}")
 
 
 # ------------- auth ------------------------------------------------------
@@ -150,17 +226,24 @@ for s in items:
                 f"**Last reviewer:** {s.get('reviewer', '') or '—'}"
             )
 
-        # ---- Questionnaire (readable) --------------------------------
-        render_questions(s.get("submission", {}))
-
-        # ---- Review history across ALL versions of this trial --------
         all_reviews = s.get("all_reviews") or []
         current_version = s.get("version", "")
-        st.markdown(f"#### Review history — all versions ({len(all_reviews)})")
-        if not all_reviews:
-            st.caption("No reviews yet.")
+
+        # ---- Questionnaire (app layout) + per-question reviews -------
+        render_questions(
+            s.get("submission", {}),
+            all_reviews=all_reviews,
+            submission_id=s["submissionId"],
+            current_version=current_version,
+        )
+
+        # ---- Overall review history (whole-submission reviews) -------
+        overall_reviews = [r for r in all_reviews if not r.get("question_id")]
+        st.markdown(f"#### Overall review history — all versions ({len(overall_reviews)})")
+        if not overall_reviews:
+            st.caption("No overall reviews yet.")
         else:
-            for rev in reversed(all_reviews):  # newest first
+            for rev in reversed(overall_reviews):  # newest first
                 rev_version = rev.get("version", "")
                 is_current = rev_version == current_version
                 vtag = f"`v{rev_version}`" + ("  _(current)_" if is_current else "")
@@ -171,8 +254,8 @@ for s in items:
                     + (f"  \n  Reviews: {rev.get('note')}" if rev.get("note") else "")
                 )
 
-        # ---- Add a review (applies to the latest version) -----------
-        st.markdown(f"#### Add a review — on latest version `v{s.get('version', '')}`")
+        # ---- Add an overall review (applies to the latest version) ---
+        st.markdown(f"#### Add an overall review — on latest version `v{s.get('version', '')}`")
         with st.form(f"review_{s['submissionId']}"):
             new_status = st.radio(
                 "Status",
