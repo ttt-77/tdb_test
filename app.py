@@ -329,6 +329,13 @@ for i, q in enumerate(st.session_state.questions):
             r for r in st.session_state.loaded_reviews if r.get("question_id") == q["id"]
         ]
         if q_reviews:
+            latest_status = q_reviews[-1].get("status", "")  # oldest-first list
+            if latest_status == "reviewed":
+                st.success("✅ Pass — this question has been reviewed")
+            elif latest_status == "needs_fix":
+                st.error("🔴 Needs fix")
+            elif latest_status == "pending":
+                st.warning("🟡 Pending review")
             with st.container(border=True):
                 st.markdown(f"**Reviewer feedback on this question ({len(q_reviews)})**")
                 _render_review_lines(q_reviews)
