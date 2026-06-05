@@ -59,7 +59,27 @@ def _stamp(iso: Optional[str] = None) -> str:
     return (iso or _now_iso()).replace(":", "-").replace(".", "-")
 
 
+def _pair_dir(trial_id: str, username: str) -> str:
+    """Folder holding all versions for a (trial_id, username) pair."""
+    return f"{SUBMISSIONS_PREFIX}/{_safe(trial_id)}__{_safe(username)}"
+
+
 def _base_id(submission_id: str) -> str:
+    """Path of a submission relative to the submissions/ prefix, without .json.
+
+    'submissions/NCT99__jdoe/2026-...json' -> 'NCT99__jdoe/2026-...'
+    Used to key the matching reviews/ folder so reviews stay grouped per
+    (pair, version).
+    """
+    s = submission_id
+    if s.startswith(f"{SUBMISSIONS_PREFIX}/"):
+        s = s[len(SUBMISSIONS_PREFIX) + 1 :]
+    if s.endswith(".json"):
+        s = s[:-5]
+    return s
+
+
+def _legacy_base_id(submission_id: str) -> str:
     """'submissions/foo.json' -> 'foo'"""
     name = submission_id.split("/")[-1]
     return name[:-5] if name.endswith(".json") else name
@@ -134,56 +154,66 @@ def _all_files() -> List[str]:
 
 # ---- public API ----------------------------------------------------------
 
-def submission_id_for(trial_id: str, username: str) -> str:
-    """Stable submission id (path) for a (trial_id, username) pair.
-
-    One submission per pair — submitting again updates the same file, so a
-    submission can be loaded back and edited.
-    """
-    return f"{SUBMISSIONS_PREFIX}/{_safe(trial_id)}__{_safe(username)}.json"
-
-
-def get_submission_by_key(trial_id: str, username: str) -> Optional[Dict[str, Any]]:
-    """Load an existing submission by (trial_id, username), or None."""
-    return get_submission(submission_id_for(trial_id, username))
-
-
 def save_submission(trial_id: str, username: str, comparison: Dict[str, Any]) -> Dict[str, Any]:
-    """Create or update the submission for (trial_id, username).
+    """Save a NEW version for (trial_id, username).
 
-    If a submission already exists for this pair, it is updated in place
-    (createdAt is preserved); otherwise a new one is created.
+    Every submit creates a new version file under
+    submissions/<trial>__<user>/<stamp>.json — nothing is overwritten, so the
+    full version history is kept and any version can be loaded back.
     """
-    submission_id = submission_id_for(trial_id, username)
     now = _now_iso()
-    existing = get_submission(submission_id)
-    created_at = (existing or {}).get("createdAt") or (existing or {}).get("submittedAt") or now
-    is_update = existing is not None
-
+    version = _stamp(now)
+    submission_id = f"{_pair_dir(trial_id, username)}/{version}.json"
     record = {
         "submissionId": submission_id,
-        "createdAt": created_at,
-        "updatedAt": now,
-        # kept for backward compatibility with older records / admin display
-        "submittedAt": created_at,
+        "version": version,
+        "submittedAt": now,
         "trial_id": trial_id,
         "username": username,
         "comparison": comparison,
     }
-    verb = "Update" if is_update else "Add"
-    _write_json(submission_id, record, f"{verb} submission: {trial_id} — {username}")
+    _write_json(
+        submission_id,
+        record,
+        f"Add submission: {trial_id} — {username} ({version})",
+    )
     url = (
         f"https://huggingface.co/datasets/{HF_DATASET_REPO}"
         f"/blob/{HF_DATASET_BRANCH}/{submission_id}"
         if hf_configured
         else None
     )
-    return {
-        "submissionId": submission_id,
-        "url": url,
-        "record": record,
-        "updated": is_update,
-    }
+    return {"submissionId": submission_id, "url": url, "record": record, "version": version}
+
+
+def list_versions(
+    trial_id: str, username: str, all_files: Optional[List[str]] = None
+) -> List[Dict[str, Any]]:
+    """All saved versions for (trial_id, username), newest first.
+
+    Each item: submissionId, version, submittedAt, num_questions.
+    """
+    prefix = f"{_pair_dir(trial_id, username)}/"
+    files = all_files if all_files is not None else _all_files()
+    paths = sorted(
+        (f for f in files if f.startswith(prefix) and f.endswith(".json")),
+        reverse=True,
+    )
+    out: List[Dict[str, Any]] = []
+    for p in paths:
+        rec = _read_json(p)
+        if not rec:
+            continue
+        prompts = (rec.get("comparison") or {}).get("prompts") or []
+        out.append(
+            {
+                "submissionId": p,
+                "version": rec.get("version", ""),
+                "submittedAt": rec.get("submittedAt", ""),
+                "num_questions": len(prompts),
+            }
+        )
+    return out
 
 
 def add_review(submission_id: str, status: str, reviewer: str, note: str = "") -> Dict[str, Any]:
@@ -245,8 +275,8 @@ def list_submissions() -> List[Dict[str, Any]]:
                 "submissionId": sp,
                 "trial_id": sub.get("trial_id", ""),
                 "username": sub.get("username", ""),
+                "version": sub.get("version", ""),
                 "submittedAt": sub.get("submittedAt", ""),
-                "updatedAt": sub.get("updatedAt", sub.get("submittedAt", "")),
                 "status": latest["status"] if latest else "pending",
                 "reviewedAt": latest["at"] if latest else "",
                 "reviewer": latest["reviewer"] if latest else "",
@@ -255,7 +285,7 @@ def list_submissions() -> List[Dict[str, Any]]:
                 "submission": sub,
             }
         )
-    result.sort(key=lambda r: r.get("updatedAt", ""), reverse=True)
+    result.sort(key=lambda r: r.get("submittedAt", ""), reverse=True)
     return result
 
 

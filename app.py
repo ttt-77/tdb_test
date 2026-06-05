@@ -22,7 +22,12 @@ from lib.schema import (
     next_question_id,
     rubrics_for_type,
 )
-from lib.storage import get_submission_by_key, hf_configured, save_submission
+from lib.storage import (
+    get_submission,
+    hf_configured,
+    list_versions,
+    save_submission,
+)
 
 st.set_page_config(
     page_title="TDB Intake",
@@ -44,6 +49,9 @@ if "last_result" not in st.session_state:
 # per-question widgets get fresh keys and actually show the new values.
 if "form_nonce" not in st.session_state:
     st.session_state.form_nonce = 0
+# Versions found for the current trial_id + username (after "Find versions").
+if "versions" not in st.session_state:
+    st.session_state.versions = []
 
 
 # ------------- callbacks -------------------------------------------------
@@ -70,36 +78,59 @@ def _save_draft() -> None:
     st.session_state.last_result = {"kind": "draft", "msg": "Draft saved in this browser session."}
 
 
-def _load() -> None:
-    """Load an existing submission by (trial_id, username) into the form."""
+def _find_versions() -> None:
+    """Look up all saved versions for the current trial_id + username."""
     trial_id = st.session_state.trial_id.strip()
     username = st.session_state.username.strip()
     if not trial_id or not username:
+        st.session_state.versions = []
         st.session_state.last_result = {
             "kind": "error",
-            "msg": "Enter trial_id and username, then click Load.",
+            "msg": "Enter trial_id and username, then click Find versions.",
         }
         return
     try:
-        record = get_submission_by_key(trial_id, username)
+        versions = list_versions(trial_id, username)
+    except Exception as e:
+        st.session_state.versions = []
+        st.session_state.last_result = {"kind": "error", "msg": f"Lookup failed: {e}"}
+        return
+    st.session_state.versions = versions
+    if not versions:
+        st.session_state.last_result = {
+            "kind": "info",
+            "msg": f"No versions yet for `{trial_id}` / `{username}`. "
+            "Add questions and Submit to create the first one.",
+        }
+    else:
+        st.session_state.last_result = {
+            "kind": "success",
+            "msg": f"Found {len(versions)} version(s). Pick one below and click "
+            "“Load selected version”.",
+        }
+
+
+def _load_selected() -> None:
+    """Load the version chosen in the version selectbox into the form."""
+    sub_id = st.session_state.get("version_select")
+    if not sub_id:
+        st.session_state.last_result = {"kind": "error", "msg": "Pick a version first."}
+        return
+    try:
+        record = get_submission(sub_id)
     except Exception as e:
         st.session_state.last_result = {"kind": "error", "msg": f"Load failed: {e}"}
         return
     if not record:
-        st.session_state.last_result = {
-            "kind": "info",
-            "msg": f"No existing submission for `{trial_id}` / `{username}`. "
-            "Add questions and Submit to create one.",
-        }
+        st.session_state.last_result = {"kind": "error", "msg": "That version could not be loaded."}
         return
     prompts = (record.get("comparison") or {}).get("prompts") or []
     st.session_state.questions = prompts
     st.session_state.form_nonce += 1  # force question widgets to refresh
-    updated = record.get("updatedAt") or record.get("submittedAt") or ""
     st.session_state.last_result = {
         "kind": "success",
-        "msg": f"Loaded {len(prompts)} question(s) (last updated {updated}). "
-        "Edit and Submit to update.",
+        "msg": f"Loaded version {record.get('version', '')} "
+        f"({len(prompts)} question(s)). Edit and Submit to save a new version.",
     }
 
 
@@ -117,13 +148,17 @@ def _submit() -> None:
     }
     try:
         result = save_submission(trial_id, username, comparison)
-        verb = "Updated" if result.get("updated") else "Submitted"
         st.session_state.last_result = {
             "kind": "success",
-            "msg": f"{verb}: `{result['submissionId']}`. "
-            "You can keep editing and Submit again to update.",
+            "msg": f"Saved as new version `{result['version']}`. "
+            "Use “Find versions” to see all versions.",
             "url": result.get("url"),
         }
+        # Refresh the version list so the new version shows up.
+        try:
+            st.session_state.versions = list_versions(trial_id, username)
+        except Exception:
+            pass
         # Keep the form populated so the user can continue editing.
     except Exception as e:
         st.session_state.last_result = {"kind": "error", "msg": f"Submit failed: {e}"}
@@ -149,10 +184,31 @@ with c2:
     st.text_input("username", key="username", placeholder="e.g., jdoe")
 
 st.button(
-    "Load existing submission",
-    on_click=_load,
-    help="If you already submitted for this trial_id + username, load it back to edit.",
+    "Find versions",
+    on_click=_find_versions,
+    help="List all previously submitted versions for this trial_id + username.",
 )
+
+versions = st.session_state.versions
+if versions:
+    options = [v["submissionId"] for v in versions]
+    labels = {
+        v["submissionId"]: f"{v['submittedAt']}  ·  v{v['version']}  ·  "
+        f"{v['num_questions']} question(s)"
+        for v in versions
+    }
+    vc1, vc2 = st.columns([3, 1])
+    with vc1:
+        st.selectbox(
+            "Select a version to load",
+            options=options,
+            format_func=lambda sid: labels.get(sid, sid),
+            key="version_select",
+        )
+    with vc2:
+        st.write("")
+        st.write("")
+        st.button("Load selected version", on_click=_load_selected, use_container_width=True)
 
 st.divider()
 
