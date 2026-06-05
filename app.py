@@ -52,6 +52,11 @@ if "form_nonce" not in st.session_state:
 # Versions found for the current trial_id + username (after "Find versions").
 if "versions" not in st.session_state:
     st.session_state.versions = []
+# Reviews of the version currently loaded into the form (if any).
+if "loaded_reviews" not in st.session_state:
+    st.session_state.loaded_reviews = []
+if "loaded_version" not in st.session_state:
+    st.session_state.loaded_version = ""
 
 
 # ------------- callbacks -------------------------------------------------
@@ -127,6 +132,12 @@ def _load_selected() -> None:
     prompts = (record.get("comparison") or {}).get("prompts") or []
     st.session_state.questions = prompts
     st.session_state.form_nonce += 1  # force question widgets to refresh
+    # Stash this version's reviews so the submitter can see reviewer feedback.
+    match = next(
+        (v for v in st.session_state.versions if v["submissionId"] == sub_id), None
+    )
+    st.session_state.loaded_reviews = (match or {}).get("reviews") or []
+    st.session_state.loaded_version = record.get("version", "")
     st.session_state.last_result = {
         "kind": "success",
         "msg": f"Loaded version {record.get('version', '')} "
@@ -189,26 +200,51 @@ st.button(
     help="List all previously submitted versions for this trial_id + username.",
 )
 
+_STATUS_EMOJI = {"pending": "🟡", "reviewed": "🟢", "needs_fix": "🔴"}
+
 versions = st.session_state.versions
 if versions:
     options = [v["submissionId"] for v in versions]
-    labels = {
-        v["submissionId"]: f"{v['submittedAt']}  ·  v{v['version']}  ·  "
-        f"{v['num_questions']} question(s)"
-        for v in versions
-    }
+
+    def _ver_label(sid: str) -> str:
+        v = next((x for x in versions if x["submissionId"] == sid), None)
+        if not v:
+            return sid
+        emoji = _STATUS_EMOJI.get(v.get("status", "pending"), "⚪")
+        rc = v.get("review_count", 0)
+        rtag = f"{rc} review(s)" if rc else "no reviews"
+        return (
+            f"{v['submittedAt']}  ·  {v['num_questions']} Q  ·  "
+            f"{emoji} {v.get('status','pending')} ({rtag})"
+        )
+
     vc1, vc2 = st.columns([3, 1])
     with vc1:
         st.selectbox(
             "Select a version to load",
             options=options,
-            format_func=lambda sid: labels.get(sid, sid),
+            format_func=_ver_label,
             key="version_select",
         )
     with vc2:
         st.write("")
         st.write("")
         st.button("Load selected version", on_click=_load_selected, use_container_width=True)
+
+# Show reviewer feedback for the version that was loaded into the form.
+loaded_reviews = st.session_state.loaded_reviews
+if loaded_reviews:
+    with st.container(border=True):
+        st.markdown(f"**Reviewer feedback on the loaded version (v{st.session_state.loaded_version})**")
+        for rev in reversed(loaded_reviews):  # newest first
+            emoji = _STATUS_EMOJI.get(rev.get("status", ""), "⚪")
+            line = (
+                f"- {emoji} **{rev.get('status','')}** — "
+                f"{rev.get('reviewer') or 'anon'} · _{rev.get('at','')}_"
+            )
+            if rev.get("note"):
+                line += f"  \n  {rev['note']}"
+            st.markdown(line)
 
 st.divider()
 

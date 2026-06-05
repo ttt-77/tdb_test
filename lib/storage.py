@@ -191,7 +191,8 @@ def list_versions(
 ) -> List[Dict[str, Any]]:
     """All saved versions for (trial_id, username), newest first.
 
-    Each item: submissionId, version, submittedAt, num_questions.
+    Each item: submissionId, version, submittedAt, num_questions, status,
+    review_count, reviews (full timeline for that version).
     """
     prefix = f"{_pair_dir(trial_id, username)}/"
     files = all_files if all_files is not None else _all_files()
@@ -205,12 +206,17 @@ def list_versions(
         if not rec:
             continue
         prompts = (rec.get("comparison") or {}).get("prompts") or []
+        reviews = list_reviews(p, all_files=files)
+        latest = reviews[-1] if reviews else None
         out.append(
             {
                 "submissionId": p,
                 "version": rec.get("version", ""),
                 "submittedAt": rec.get("submittedAt", ""),
                 "num_questions": len(prompts),
+                "status": latest["status"] if latest else "pending",
+                "review_count": len(reviews),
+                "reviews": reviews,
             }
         )
     return out
