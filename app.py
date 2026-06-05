@@ -231,20 +231,30 @@ if versions:
         st.write("")
         st.button("Load selected version", on_click=_load_selected, use_container_width=True)
 
-# Show reviewer feedback for the version that was loaded into the form.
+def _render_review_lines(reviews: list) -> None:
+    """Render a list of reviews as markdown bullets, newest first."""
+    for rev in reversed(reviews):
+        emoji = _STATUS_EMOJI.get(rev.get("status", ""), "⚪")
+        line = (
+            f"- {emoji} **{rev.get('status','')}** — "
+            f"{rev.get('reviewer') or 'anon'} · _{rev.get('at','')}_"
+        )
+        if rev.get("note"):
+            line += f"  \n  Reviews: {rev['note']}"
+        st.markdown(line)
+
+
+# Show OVERALL reviewer feedback for the loaded version (per-question feedback
+# is shown inside each question block below).
 loaded_reviews = st.session_state.loaded_reviews
-if loaded_reviews:
+overall_loaded = [r for r in loaded_reviews if not r.get("question_id")]
+if overall_loaded:
     with st.container(border=True):
-        st.markdown(f"**Reviewer feedback on the loaded version (v{st.session_state.loaded_version})**")
-        for rev in reversed(loaded_reviews):  # newest first
-            emoji = _STATUS_EMOJI.get(rev.get("status", ""), "⚪")
-            line = (
-                f"- {emoji} **{rev.get('status','')}** — "
-                f"{rev.get('reviewer') or 'anon'} · _{rev.get('at','')}_"
-            )
-            if rev.get("note"):
-                line += f"  \n  Reviews: {rev['note']}"
-            st.markdown(line)
+        st.markdown(
+            f"**Overall reviewer feedback on the loaded version "
+            f"(v{st.session_state.loaded_version})**"
+        )
+        _render_review_lines(overall_loaded)
 
 st.divider()
 
@@ -313,6 +323,15 @@ for i, q in enumerate(st.session_state.questions):
             placeholder="e.g., Alpha allocated to PFS",
         )
         q["question"] = new_question
+
+        # Reviewer feedback specific to this question (from the loaded version).
+        q_reviews = [
+            r for r in st.session_state.loaded_reviews if r.get("question_id") == q["id"]
+        ]
+        if q_reviews:
+            with st.container(border=True):
+                st.markdown(f"**Reviewer feedback on this question ({len(q_reviews)})**")
+                _render_review_lines(q_reviews)
 
         if q["rubrics"]:
             st.markdown(f"**Rubrics ({len(q['rubrics'])})**")
