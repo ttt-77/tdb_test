@@ -280,6 +280,18 @@ def list_pair_reviews(
     return out
 
 
+def pair_reviews(
+    trial_id: str, username: str, all_files: Optional[List[str]] = None
+) -> List[Dict[str, Any]]:
+    """All reviews across all versions for a (trial_id, username), oldest first.
+
+    Convenience wrapper around list_pair_reviews for callers that have the raw
+    trial_id / username (e.g. the public form).
+    """
+    pair_key = f"{_safe(trial_id)}__{_safe(username)}"
+    return list_pair_reviews(pair_key, all_files=all_files)
+
+
 def list_reviews(submission_id: str, all_files: Optional[List[str]] = None) -> List[Dict[str, Any]]:
     """All reviews for a single submission version, oldest first."""
     base = _base_id(submission_id)

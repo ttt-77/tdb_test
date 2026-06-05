@@ -26,6 +26,7 @@ from lib.storage import (
     get_submission,
     hf_configured,
     list_versions,
+    pair_reviews,
     save_submission,
 )
 
@@ -52,9 +53,9 @@ if "form_nonce" not in st.session_state:
 # Versions found for the current trial_id + username (after "Find versions").
 if "versions" not in st.session_state:
     st.session_state.versions = []
-# Reviews of the version currently loaded into the form (if any).
-if "loaded_reviews" not in st.session_state:
-    st.session_state.loaded_reviews = []
+# All reviews across ALL versions of the current trial_id + username (history).
+if "pair_reviews" not in st.session_state:
+    st.session_state.pair_reviews = []
 if "loaded_version" not in st.session_state:
     st.session_state.loaded_version = ""
 
@@ -96,6 +97,7 @@ def _find_versions() -> None:
         return
     try:
         versions = list_versions(trial_id, username)
+        st.session_state.pair_reviews = pair_reviews(trial_id, username)
     except Exception as e:
         st.session_state.versions = []
         st.session_state.last_result = {"kind": "error", "msg": f"Lookup failed: {e}"}
@@ -132,11 +134,6 @@ def _load_selected() -> None:
     prompts = (record.get("comparison") or {}).get("prompts") or []
     st.session_state.questions = prompts
     st.session_state.form_nonce += 1  # force question widgets to refresh
-    # Stash this version's reviews so the submitter can see reviewer feedback.
-    match = next(
-        (v for v in st.session_state.versions if v["submissionId"] == sub_id), None
-    )
-    st.session_state.loaded_reviews = (match or {}).get("reviews") or []
     st.session_state.loaded_version = record.get("version", "")
     st.session_state.last_result = {
         "kind": "success",
@@ -232,29 +229,28 @@ if versions:
         st.button("Load selected version", on_click=_load_selected, use_container_width=True)
 
 def _render_review_lines(reviews: list) -> None:
-    """Render a list of reviews as markdown bullets, newest first."""
+    """Render a list of reviews as markdown bullets, newest first (with version)."""
     for rev in reversed(reviews):
         emoji = _STATUS_EMOJI.get(rev.get("status", ""), "⚪")
+        ver = rev.get("version", "")
+        vtag = f" · on `v{ver}`" if ver else ""
         line = (
             f"- {emoji} **{rev.get('status','')}** — "
-            f"{rev.get('reviewer') or 'anon'} · _{rev.get('at','')}_"
+            f"{rev.get('reviewer') or 'anon'} · _{rev.get('at','')}_{vtag}"
         )
         if rev.get("note"):
             line += f"  \n  Reviews: {rev['note']}"
         st.markdown(line)
 
 
-# Show OVERALL reviewer feedback for the loaded version (per-question feedback
-# is shown inside each question block below).
-loaded_reviews = st.session_state.loaded_reviews
-overall_loaded = [r for r in loaded_reviews if not r.get("question_id")]
-if overall_loaded:
+# Show OVERALL reviewer feedback across ALL versions of this trial (per-question
+# feedback is shown inside each question block below).
+pair_review_list = st.session_state.pair_reviews
+overall_history = [r for r in pair_review_list if not r.get("question_id")]
+if overall_history:
     with st.container(border=True):
-        st.markdown(
-            f"**Overall reviewer feedback on the loaded version "
-            f"(v{st.session_state.loaded_version})**"
-        )
-        _render_review_lines(overall_loaded)
+        st.markdown(f"**Overall reviewer feedback — all versions ({len(overall_history)})**")
+        _render_review_lines(overall_history)
 
 st.divider()
 
@@ -324,9 +320,9 @@ for i, q in enumerate(st.session_state.questions):
         )
         q["question"] = new_question
 
-        # Reviewer feedback specific to this question (from the loaded version).
+        # Reviewer feedback for this question across ALL versions of the trial.
         q_reviews = [
-            r for r in st.session_state.loaded_reviews if r.get("question_id") == q["id"]
+            r for r in st.session_state.pair_reviews if r.get("question_id") == q["id"]
         ]
         if q_reviews:
             latest_status = q_reviews[-1].get("status", "")  # oldest-first list
@@ -337,7 +333,9 @@ for i, q in enumerate(st.session_state.questions):
             elif latest_status == "pending":
                 st.warning("🟡 Pending review")
             with st.container(border=True):
-                st.markdown(f"**Reviewer feedback on this question ({len(q_reviews)})**")
+                st.markdown(
+                    f"**Reviewer feedback on this question — all versions ({len(q_reviews)})**"
+                )
                 _render_review_lines(q_reviews)
 
         if q["rubrics"]:
