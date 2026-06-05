@@ -54,11 +54,17 @@ def _render_question_reviews(qreviews: list, current_version: str) -> None:
         )
 
 
+NO_REVIEW = "— no review —"
+REVIEW_OPTIONS = [NO_REVIEW] + VALID_STATUSES
+
+
 def render_questions(
     submission: dict, all_reviews: list, submission_id: str, current_version: str
 ) -> None:
-    """Render the questionnaire in the app's layout, with a per-question
-    review thread and an add-review form for each question."""
+    """Render the questionnaire (app layout) plus, for each question, its review
+    thread and review *input* widgets. No submit here — a single batch submit
+    button (below, in the enclosing form) commits everything at once.
+    """
     prompts = (submission.get("comparison") or {}).get("prompts") or []
     st.markdown(f"#### Questions ({len(prompts)})")
     if not prompts:
@@ -113,39 +119,20 @@ def render_questions(
                             key=f"cr_{submission_id}_{qid}_{j}", height=70,
                         )
 
-            # ---- per-question reviews ----
+            # ---- existing reviews for this question ----
             qreviews = [r for r in all_reviews if r.get("question_id") == qid]
             st.markdown(f"**Reviews for this question ({len(qreviews)})**")
             _render_question_reviews(qreviews, current_version)
 
-            with st.form(f"qrev_{submission_id}_{qid}"):
-                new_status = st.radio(
-                    "Status", options=VALID_STATUSES, horizontal=True,
-                    key=f"qst_{submission_id}_{qid}",
+            # ---- review input for this question (committed by batch submit) ----
+            rc1, rc2 = st.columns([1, 2])
+            with rc1:
+                st.selectbox(
+                    "Review status", options=REVIEW_OPTIONS,
+                    key=f"revst_{submission_id}_{qid}",
                 )
-                fc1, fc2 = st.columns([1, 2])
-                with fc1:
-                    reviewer = st.text_input(
-                        "Your name", key=f"qrv_{submission_id}_{qid}"
-                    )
-                with fc2:
-                    note = st.text_input(
-                        "Comment", key=f"qnt_{submission_id}_{qid}"
-                    )
-                if st.form_submit_button("Add review for this question", type="primary"):
-                    if not reviewer.strip():
-                        st.error("Please enter your name.")
-                    else:
-                        try:
-                            add_review(
-                                submission_id, status=new_status,
-                                reviewer=reviewer.strip(), note=note.strip(),
-                                question_id=qid,
-                            )
-                            st.success(f"Review added for {qid}.")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Failed: {e}")
+            with rc2:
+                st.text_input("Comment", key=f"revnt_{submission_id}_{qid}")
 
 
 # ------------- auth ------------------------------------------------------
@@ -228,14 +215,8 @@ for s in items:
 
         all_reviews = s.get("all_reviews") or []
         current_version = s.get("version", "")
-
-        # ---- Questionnaire (app layout) + per-question reviews -------
-        render_questions(
-            s.get("submission", {}),
-            all_reviews=all_reviews,
-            submission_id=s["submissionId"],
-            current_version=current_version,
-        )
+        sid = s["submissionId"]
+        prompts = (s.get("submission", {}).get("comparison") or {}).get("prompts") or []
 
         # ---- Overall review history (whole-submission reviews) -------
         overall_reviews = [r for r in all_reviews if not r.get("question_id")]
@@ -254,37 +235,71 @@ for s in items:
                     + (f"  \n  Reviews: {rev.get('note')}" if rev.get("note") else "")
                 )
 
-        # ---- Add an overall review (applies to the latest version) ---
-        st.markdown(f"#### Add an overall review — on latest version `v{s.get('version', '')}`")
-        with st.form(f"review_{s['submissionId']}"):
-            new_status = st.radio(
-                "Status",
-                options=VALID_STATUSES,
-                index=VALID_STATUSES.index(s.get("status", "pending"))
-                if s.get("status") in VALID_STATUSES
-                else 0,
-                horizontal=True,
+        # ---- One batch form: fill every question + overall, submit once ----
+        st.markdown("### Review")
+        st.caption(
+            "Set a status and comment on any questions you want to review, plus an "
+            "optional overall review, then click **Submit all reviews** at the bottom. "
+            "Leave a status as “— no review —” to skip it."
+        )
+        with st.form(f"reviewform_{sid}"):
+            reviewer = st.text_input(
+                "Your name (applies to all reviews below)", placeholder="e.g., Dr. Smith"
             )
-            rc1, rc2 = st.columns([1, 2])
-            with rc1:
-                reviewer = st.text_input("Your name", placeholder="e.g., Dr. Smith")
-            with rc2:
-                note = st.text_input("Comment", placeholder="optional")
-            if st.form_submit_button("Add review", type="primary"):
-                if not reviewer.strip():
-                    st.error("Please enter your name.")
-                else:
-                    try:
+
+            # Questionnaire (app layout) + per-question review inputs.
+            render_questions(
+                s.get("submission", {}),
+                all_reviews=all_reviews,
+                submission_id=sid,
+                current_version=current_version,
+            )
+
+            # Overall review input.
+            st.markdown("#### Overall review (whole submission)")
+            oc1, oc2 = st.columns([1, 2])
+            with oc1:
+                st.selectbox("Overall status", options=REVIEW_OPTIONS, key=f"revst_{sid}__overall")
+            with oc2:
+                st.text_input("Overall comment", key=f"revnt_{sid}__overall")
+
+            submitted = st.form_submit_button("Submit all reviews", type="primary")
+
+        if submitted:
+            name = reviewer.strip()
+            # Gather every question + overall input that has a chosen status.
+            to_add = []
+            for q in prompts:
+                qid = q.get("id", "")
+                stt = st.session_state.get(f"revst_{sid}_{qid}", NO_REVIEW)
+                if stt and stt != NO_REVIEW:
+                    note = st.session_state.get(f"revnt_{sid}_{qid}", "")
+                    to_add.append((qid, stt, note))
+            ov_stt = st.session_state.get(f"revst_{sid}__overall", NO_REVIEW)
+            if ov_stt and ov_stt != NO_REVIEW:
+                to_add.append(("", ov_stt, st.session_state.get(f"revnt_{sid}__overall", "")))
+
+            if not to_add:
+                st.warning("Nothing to submit — set a status on at least one question or overall.")
+            elif not name:
+                st.error("Please enter your name.")
+            else:
+                try:
+                    for qid, stt, note in to_add:
                         add_review(
-                            s["submissionId"],
-                            status=new_status,
-                            reviewer=reviewer.strip(),
-                            note=note.strip(),
+                            sid, status=stt, reviewer=name,
+                            note=(note or "").strip(), question_id=qid,
                         )
-                        st.success("Review added.")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Failed to add review: {e}")
+                    # Reset the form inputs for this submission.
+                    for q in prompts:
+                        st.session_state.pop(f"revst_{sid}_{q.get('id', '')}", None)
+                        st.session_state.pop(f"revnt_{sid}_{q.get('id', '')}", None)
+                    st.session_state.pop(f"revst_{sid}__overall", None)
+                    st.session_state.pop(f"revnt_{sid}__overall", None)
+                    st.success(f"Submitted {len(to_add)} review(s).")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Failed to submit reviews: {e}")
 
         with st.expander("Raw submission JSON"):
             st.code(json.dumps(s.get("submission", {}), indent=2, ensure_ascii=False), language="json")
