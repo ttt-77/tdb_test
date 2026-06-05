@@ -126,7 +126,7 @@ for s in items:
                     f"- {status_badge(rev.get('status', ''))} — "
                     f"**{rev.get('reviewer') or 'anon'}** "
                     f"· _{rev.get('at', '')}_ · on {vtag}"
-                    + (f"  \n  {rev.get('note')}" if rev.get("note") else "")
+                    + (f"  \n  Reviews: {rev.get('note')}" if rev.get("note") else "")
                 )
 
         # ---- Add a review (applies to the latest version) -----------

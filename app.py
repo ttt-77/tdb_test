@@ -243,7 +243,7 @@ if loaded_reviews:
                 f"{rev.get('reviewer') or 'anon'} · _{rev.get('at','')}_"
             )
             if rev.get("note"):
-                line += f"  \n  {rev['note']}"
+                line += f"  \n  Reviews: {rev['note']}"
             st.markdown(line)
 
 st.divider()
