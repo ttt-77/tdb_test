@@ -107,26 +107,30 @@ for s in items:
             )
         with meta_c2:
             st.markdown(
-                f"**File:** `{s.get('submissionId', '')}`  \n"
+                f"**Latest version:** `{s.get('version', '')}`  \n"
                 f"**Last reviewer:** {s.get('reviewer', '') or '—'}"
             )
 
-        # ---- Review timeline -----------------------------------------
-        reviews = s.get("reviews") or []
-        st.markdown(f"#### Review history ({len(reviews)})")
-        if not reviews:
+        # ---- Review history across ALL versions of this trial --------
+        all_reviews = s.get("all_reviews") or []
+        current_version = s.get("version", "")
+        st.markdown(f"#### Review history — all versions ({len(all_reviews)})")
+        if not all_reviews:
             st.caption("No reviews yet.")
         else:
-            for rev in reversed(reviews):  # newest first
+            for rev in reversed(all_reviews):  # newest first
+                rev_version = rev.get("version", "")
+                is_current = rev_version == current_version
+                vtag = f"`v{rev_version}`" + ("  _(current)_" if is_current else "")
                 st.markdown(
                     f"- {status_badge(rev.get('status', ''))} — "
                     f"**{rev.get('reviewer') or 'anon'}** "
-                    f"· _{rev.get('at', '')}_"
+                    f"· _{rev.get('at', '')}_ · on {vtag}"
                     + (f"  \n  {rev.get('note')}" if rev.get("note") else "")
                 )
 
-        # ---- Add a review --------------------------------------------
-        st.markdown("#### Add a review")
+        # ---- Add a review (applies to the latest version) -----------
+        st.markdown(f"#### Add a review — on latest version `v{s.get('version', '')}`")
         with st.form(f"review_{s['submissionId']}"):
             new_status = st.radio(
                 "Status",

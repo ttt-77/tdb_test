@@ -242,8 +242,33 @@ def add_review(submission_id: str, status: str, reviewer: str, note: str = "") -
     return review
 
 
+def list_pair_reviews(
+    pair_key: str, all_files: Optional[List[str]] = None
+) -> List[Dict[str, Any]]:
+    """Every review across ALL versions of a (trial_id, username) pair.
+
+    pair_key is '<trial>__<user>'. Each returned review is tagged with the
+    `version` it was made on. Oldest first.
+    """
+    prefix = f"{REVIEWS_PREFIX}/{pair_key}/"
+    files = all_files if all_files is not None else _all_files()
+    paths = sorted(f for f in files if f.startswith(prefix) and f.endswith(".json"))
+    out: List[Dict[str, Any]] = []
+    for p in paths:
+        rec = _read_json(p)
+        if not rec:
+            continue
+        # p = reviews/<pair>/<version>/<revfile>.json
+        parts = p[len(REVIEWS_PREFIX) + 1 :].split("/")
+        rec = dict(rec)
+        rec["version"] = parts[1] if len(parts) >= 3 else ""
+        out.append(rec)
+    out.sort(key=lambda r: r.get("at", ""))
+    return out
+
+
 def list_reviews(submission_id: str, all_files: Optional[List[str]] = None) -> List[Dict[str, Any]]:
-    """All reviews for a submission, oldest first."""
+    """All reviews for a single submission version, oldest first."""
     base = _base_id(submission_id)
     prefix = f"{REVIEWS_PREFIX}/{base}/"
     files = all_files if all_files is not None else _all_files()
@@ -290,12 +315,15 @@ def list_submissions() -> List[Dict[str, Any]]:
             latest_by_pair[key] = sp
 
     result: List[Dict[str, Any]] = []
-    for sp in latest_by_pair.values():
+    for key, sp in latest_by_pair.items():
         sub = _read_json(sp)
         if not sub:
             continue
+        # Reviews on the latest version drive the current status.
         reviews = list_reviews(sp, all_files=files)
         latest = reviews[-1] if reviews else None
+        # All reviews across every version of this trial (tagged with version).
+        all_reviews = list_pair_reviews(key, all_files=files)
         result.append(
             {
                 "submissionId": sp,
@@ -308,6 +336,7 @@ def list_submissions() -> List[Dict[str, Any]]:
                 "reviewer": latest["reviewer"] if latest else "",
                 "review_count": len(reviews),
                 "reviews": reviews,
+                "all_reviews": all_reviews,
                 "submission": sub,
             }
         )
