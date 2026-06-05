@@ -311,5 +311,5 @@ for s in items:
                 except Exception as e:
                     st.error(f"Failed to submit reviews: {e}")
 
-        with st.expander("Raw submission JSON"):
+        if st.checkbox("Show raw submission JSON", key=f"rawjson_{sid}"):
             st.code(json.dumps(s.get("submission", {}), indent=2, ensure_ascii=False), language="json")
