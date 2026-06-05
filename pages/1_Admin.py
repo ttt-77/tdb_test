@@ -81,7 +81,7 @@ except Exception as e:
 if status_filter:
     items = [s for s in items if s["status"] in status_filter]
 
-st.caption(f"{len(items)} submission(s)")
+st.caption(f"{len(items)} trial(s) — showing the latest version of each")
 
 if not items:
     st.info("No submissions match this filter.")

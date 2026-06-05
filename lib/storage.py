@@ -259,18 +259,38 @@ def get_submission(submission_id: str) -> Optional[Dict[str, Any]]:
     return _read_json(submission_id)
 
 
-def list_submissions() -> List[Dict[str, Any]]:
-    """Every submission with its derived status and full review timeline.
+def _pair_key_from_path(p: str) -> str:
+    """Group key for a submission path = its (trial_id, username) folder.
 
-    Each item: submissionId, trial_id, username, submittedAt, status,
-    reviewedAt, reviewer, review_count, reviews (list), submission (full record).
+    'submissions/NCT99__jdoe/2026-...json' -> 'NCT99__jdoe'
+    'submissions/foo.json' (legacy flat) -> 'foo'
+    """
+    rest = p[len(SUBMISSIONS_PREFIX) + 1 :]
+    if "/" in rest:
+        return rest.rsplit("/", 1)[0]
+    return rest[:-5] if rest.endswith(".json") else rest
+
+
+def list_submissions() -> List[Dict[str, Any]]:
+    """Latest version of each (trial_id, username), with its review timeline.
+
+    Reviewers see one row per trial — only the newest version. Each item:
+    submissionId, trial_id, username, version, submittedAt, status, reviewedAt,
+    reviewer, review_count, reviews (list), submission (full record).
     """
     files = _all_files()
-    sub_paths = sorted(
+    sub_paths = [
         f for f in files if f.startswith(f"{SUBMISSIONS_PREFIX}/") and f.endswith(".json")
-    )
-    result: List[Dict[str, Any]] = []
+    ]
+    # Keep only the newest version path per pair (stamps sort lexically).
+    latest_by_pair: Dict[str, str] = {}
     for sp in sub_paths:
+        key = _pair_key_from_path(sp)
+        if key not in latest_by_pair or sp > latest_by_pair[key]:
+            latest_by_pair[key] = sp
+
+    result: List[Dict[str, Any]] = []
+    for sp in latest_by_pair.values():
         sub = _read_json(sp)
         if not sub:
             continue

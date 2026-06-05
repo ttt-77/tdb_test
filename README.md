@@ -24,7 +24,7 @@ A Streamlit intake form for trial statisticians. Submissions are saved to a **Hu
     - `derivation_required` → 4 rubrics: `output.json` × {Inputs used, Calculated value, Method} + `output.R` × {Reproducibility}
   - Each rubric collects `points`, `tolerance`, `criterion`.
   - **Versions** — every Submit saves a new version. Re-enter the same `trial_id` + `username`, click **Find versions**, pick one, and **Load selected version** to pull it back into the form for editing; Submit then saves a new version.
-- **Admin page (`pages/1_Admin.py`)** — password-gated review console. A submission can be reviewed many times by different people: each review (status + reviewer name + comment) is written as its own file under `reviews/<submission>/`, and the page shows the full timeline. The current status is the most recent review's status.
+- **Admin page (`pages/1_Admin.py`)** — password-gated review console. Shows **only the latest version of each trial** (one row per `trial_id` + `username`). A version can be reviewed many times by different people: each review (status + reviewer name + comment) is written as its own file under `reviews/<trial>__<user>/<version>/`, and the page shows the full timeline. The current status is the most recent review's status. (Submitters can still see and load all their own versions on the form.)
 
 ## Run locally
 
