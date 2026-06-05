@@ -22,7 +22,7 @@ from lib.schema import (
     next_question_id,
     rubrics_for_type,
 )
-from lib.storage import create_submission, hf_configured
+from lib.storage import get_submission_by_key, hf_configured, save_submission
 
 st.set_page_config(
     page_title="TDB Intake",
@@ -40,6 +40,10 @@ if "username" not in st.session_state:
     st.session_state.username = ""
 if "last_result" not in st.session_state:
     st.session_state.last_result = None
+# Bumped whenever we replace the questions wholesale (load / reset) so the
+# per-question widgets get fresh keys and actually show the new values.
+if "form_nonce" not in st.session_state:
+    st.session_state.form_nonce = 0
 
 
 # ------------- callbacks -------------------------------------------------
@@ -66,6 +70,39 @@ def _save_draft() -> None:
     st.session_state.last_result = {"kind": "draft", "msg": "Draft saved in this browser session."}
 
 
+def _load() -> None:
+    """Load an existing submission by (trial_id, username) into the form."""
+    trial_id = st.session_state.trial_id.strip()
+    username = st.session_state.username.strip()
+    if not trial_id or not username:
+        st.session_state.last_result = {
+            "kind": "error",
+            "msg": "Enter trial_id and username, then click Load.",
+        }
+        return
+    try:
+        record = get_submission_by_key(trial_id, username)
+    except Exception as e:
+        st.session_state.last_result = {"kind": "error", "msg": f"Load failed: {e}"}
+        return
+    if not record:
+        st.session_state.last_result = {
+            "kind": "info",
+            "msg": f"No existing submission for `{trial_id}` / `{username}`. "
+            "Add questions and Submit to create one.",
+        }
+        return
+    prompts = (record.get("comparison") or {}).get("prompts") or []
+    st.session_state.questions = prompts
+    st.session_state.form_nonce += 1  # force question widgets to refresh
+    updated = record.get("updatedAt") or record.get("submittedAt") or ""
+    st.session_state.last_result = {
+        "kind": "success",
+        "msg": f"Loaded {len(prompts)} question(s) (last updated {updated}). "
+        "Edit and Submit to update.",
+    }
+
+
 def _submit() -> None:
     trial_id = st.session_state.trial_id.strip()
     username = st.session_state.username.strip()
@@ -79,16 +116,15 @@ def _submit() -> None:
         "prompts": st.session_state.questions,
     }
     try:
-        result = create_submission(trial_id, username, comparison)
+        result = save_submission(trial_id, username, comparison)
+        verb = "Updated" if result.get("updated") else "Submitted"
         st.session_state.last_result = {
             "kind": "success",
-            "msg": f"Submitted: `{result['submissionId']}`",
+            "msg": f"{verb}: `{result['submissionId']}`. "
+            "You can keep editing and Submit again to update.",
             "url": result.get("url"),
         }
-        # Reset form
-        st.session_state.questions = []
-        st.session_state.trial_id = ""
-        st.session_state.username = ""
+        # Keep the form populated so the user can continue editing.
     except Exception as e:
         st.session_state.last_result = {"kind": "error", "msg": f"Submit failed: {e}"}
 
@@ -112,6 +148,12 @@ with c1:
 with c2:
     st.text_input("username", key="username", placeholder="e.g., jdoe")
 
+st.button(
+    "Load existing submission",
+    on_click=_load,
+    help="If you already submitted for this trial_id + username, load it back to edit.",
+)
+
 st.divider()
 
 # ------------- questions list --------------------------------------------
@@ -121,6 +163,8 @@ st.subheader("Questions")
 if not st.session_state.questions:
     st.caption('No questions yet. Click "Add question" below to begin.')
 
+n = st.session_state.form_nonce  # widget-key namespace; changes on load/reset
+
 for i, q in enumerate(st.session_state.questions):
     with st.container(border=True):
         head_l, head_r = st.columns([6, 1])
@@ -128,12 +172,12 @@ for i, q in enumerate(st.session_state.questions):
             new_id = st.text_input(
                 "id",
                 value=q["id"],
-                key=f"q_{i}_id",
+                key=f"q_{n}_{i}_id",
                 label_visibility="collapsed",
             )
             q["id"] = new_id
         with head_r:
-            st.button("Remove", key=f"rm_{i}", on_click=_remove_question, args=(i,))
+            st.button("Remove", key=f"rm_{n}_{i}", on_click=_remove_question, args=(i,))
 
         col1, col2 = st.columns(2)
         with col1:
@@ -143,7 +187,7 @@ for i, q in enumerate(st.session_state.questions):
                 "design_element",
                 options=de_options,
                 index=de_idx,
-                key=f"q_{i}_de",
+                key=f"q_{n}_{i}_de",
                 format_func=lambda x: "— select —" if x == "" else x,
             )
             q["design_element"] = new_de
@@ -151,7 +195,7 @@ for i, q in enumerate(st.session_state.questions):
                 q["design_element_other"] = st.text_input(
                     "Specify other design element",
                     value=q.get("design_element_other", ""),
-                    key=f"q_{i}_de_other",
+                    key=f"q_{n}_{i}_de_other",
                 )
             else:
                 q["design_element_other"] = ""
@@ -163,7 +207,7 @@ for i, q in enumerate(st.session_state.questions):
                 "question_type",
                 options=qt_options,
                 index=qt_idx,
-                key=f"q_{i}_qt",
+                key=f"q_{n}_{i}_qt",
                 format_func=lambda x: "— select —" if x == "" else x,
             )
             # If question_type changed, regenerate rubrics via callback-like pattern.
@@ -173,7 +217,7 @@ for i, q in enumerate(st.session_state.questions):
         new_question = st.text_input(
             "question",
             value=q["question"],
-            key=f"q_{i}_question",
+            key=f"q_{n}_{i}_question",
             placeholder="e.g., Alpha allocated to PFS",
         )
         q["question"] = new_question
@@ -192,18 +236,18 @@ for i, q in enumerate(st.session_state.questions):
                         r["points"] = st.text_input(
                             "points",
                             value=r["points"],
-                            key=f"q_{i}_r_{j}_points",
+                            key=f"q_{n}_{i}_r_{j}_points",
                         )
                     with rc2:
                         r["tolerance"] = st.text_input(
                             "tolerance",
                             value=r["tolerance"],
-                            key=f"q_{i}_r_{j}_tolerance",
+                            key=f"q_{n}_{i}_r_{j}_tolerance",
                         )
                     r["criterion"] = st.text_area(
                         "criterion",
                         value=r["criterion"],
-                        key=f"q_{i}_r_{j}_criterion",
+                        key=f"q_{n}_{i}_r_{j}_criterion",
                         height=80,
                     )
 

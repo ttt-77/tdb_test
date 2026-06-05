@@ -134,25 +134,56 @@ def _all_files() -> List[str]:
 
 # ---- public API ----------------------------------------------------------
 
-def create_submission(trial_id: str, username: str, comparison: Dict[str, Any]) -> Dict[str, Any]:
-    """Write a new (immutable) submission file. Returns submissionId + url."""
-    file_name = f"{_safe(trial_id)}__{_safe(username)}__{_stamp()}.json"
-    submission_id = f"{SUBMISSIONS_PREFIX}/{file_name}"
+def submission_id_for(trial_id: str, username: str) -> str:
+    """Stable submission id (path) for a (trial_id, username) pair.
+
+    One submission per pair — submitting again updates the same file, so a
+    submission can be loaded back and edited.
+    """
+    return f"{SUBMISSIONS_PREFIX}/{_safe(trial_id)}__{_safe(username)}.json"
+
+
+def get_submission_by_key(trial_id: str, username: str) -> Optional[Dict[str, Any]]:
+    """Load an existing submission by (trial_id, username), or None."""
+    return get_submission(submission_id_for(trial_id, username))
+
+
+def save_submission(trial_id: str, username: str, comparison: Dict[str, Any]) -> Dict[str, Any]:
+    """Create or update the submission for (trial_id, username).
+
+    If a submission already exists for this pair, it is updated in place
+    (createdAt is preserved); otherwise a new one is created.
+    """
+    submission_id = submission_id_for(trial_id, username)
+    now = _now_iso()
+    existing = get_submission(submission_id)
+    created_at = (existing or {}).get("createdAt") or (existing or {}).get("submittedAt") or now
+    is_update = existing is not None
+
     record = {
         "submissionId": submission_id,
-        "submittedAt": _now_iso(),
+        "createdAt": created_at,
+        "updatedAt": now,
+        # kept for backward compatibility with older records / admin display
+        "submittedAt": created_at,
         "trial_id": trial_id,
         "username": username,
         "comparison": comparison,
     }
-    _write_json(submission_id, record, f"Add submission: {trial_id} — {username}")
+    verb = "Update" if is_update else "Add"
+    _write_json(submission_id, record, f"{verb} submission: {trial_id} — {username}")
     url = (
         f"https://huggingface.co/datasets/{HF_DATASET_REPO}"
         f"/blob/{HF_DATASET_BRANCH}/{submission_id}"
         if hf_configured
         else None
     )
-    return {"submissionId": submission_id, "url": url, "record": record}
+    return {
+        "submissionId": submission_id,
+        "url": url,
+        "record": record,
+        "updated": is_update,
+    }
 
 
 def add_review(submission_id: str, status: str, reviewer: str, note: str = "") -> Dict[str, Any]:
@@ -215,6 +246,7 @@ def list_submissions() -> List[Dict[str, Any]]:
                 "trial_id": sub.get("trial_id", ""),
                 "username": sub.get("username", ""),
                 "submittedAt": sub.get("submittedAt", ""),
+                "updatedAt": sub.get("updatedAt", sub.get("submittedAt", "")),
                 "status": latest["status"] if latest else "pending",
                 "reviewedAt": latest["at"] if latest else "",
                 "reviewer": latest["reviewer"] if latest else "",
@@ -223,7 +255,7 @@ def list_submissions() -> List[Dict[str, Any]]:
                 "submission": sub,
             }
         )
-    result.sort(key=lambda r: r.get("submittedAt", ""), reverse=True)
+    result.sort(key=lambda r: r.get("updatedAt", ""), reverse=True)
     return result
 
 

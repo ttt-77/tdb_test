@@ -23,7 +23,8 @@ A Streamlit intake form for trial statisticians. Submissions are saved to a **Hu
     - `extraction_only` → 1 rubric: `output.json`
     - `derivation_required` → 4 rubrics: `output.json` × {Inputs used, Calculated value, Method} + `output.R` × {Reproducibility}
   - Each rubric collects `points`, `tolerance`, `criterion`.
-- **Admin page (`pages/1_Admin.py`)** — password-gated review console. A submission can be reviewed many times by different people: each review (status + reviewer name + comment) is written as its own file under `reviews/<submission>/`, and the page shows the full timeline. The current status is the most recent review's status. Submissions themselves are never modified.
+  - **Load existing submission** — re-enter the same `trial_id` + `username` and click Load to pull a previous submission back into the form, edit it, and Submit again to update.
+- **Admin page (`pages/1_Admin.py`)** — password-gated review console. A submission can be reviewed many times by different people: each review (status + reviewer name + comment) is written as its own file under `reviews/<submission>/`, and the page shows the full timeline. The current status is the most recent review's status.
 
 ## Run locally
 
@@ -84,25 +85,32 @@ The Space will restart automatically and pick up the new secrets.
 
 ### 6. Test
 
-- Open the Space URL → fill the form → **Submit**. A new file lands in `submissions/<trial_id>__<username>__<timestamp>.json` in the dataset repo.
+- Open the Space URL → fill the form → **Submit**. A file lands in `submissions/<trial_id>__<username>.json` in the dataset repo. Submitting again with the same trial_id + username updates that file.
 - Open the **Admin** page (left sidebar) → enter password → see the submission with status `pending` → add a review (your name + status + comment). It appears in the review timeline and a new file lands under `reviews/<submission>/`. Add more reviews to build up the history.
 
 ## Dataset layout
 
-Submissions are **immutable**. Each review is a **separate file** — so a
-submission can be reviewed many times by different people, and concurrent
-reviews never conflict (each is a brand-new file, never an overwrite).
+One submission file per `(trial_id, username)` pair — submitting again
+**updates** the same file, so a submission can be loaded back and edited.
+(Edit history is preserved in the dataset's git commits.) Each review is a
+**separate file**, so a submission can be reviewed many times by different
+people and concurrent reviews never conflict.
 
 ```text
-submissions/<trial>__<user>__<stamp>.json            # the submission (never rewritten)
-reviews/<trial>__<user>__<stamp>/<stamp>__<rev>.json # one file per review
+submissions/<trial>__<user>.json            # the submission (upserted on each submit)
+reviews/<trial>__<user>/<stamp>__<rev>.json # one file per review
 ```
+
+To edit an existing submission: on the form, enter the same `trial_id` +
+`username` and click **Load existing submission**, edit, then **Submit**.
 
 ### Submission file (`submissions/*.json`)
 
 ```json
 {
-  "submissionId": "submissions/NCT0001__jdoe__2026-06-01T...Z.json",
+  "submissionId": "submissions/NCT0001__jdoe.json",
+  "createdAt": "2026-06-01T...",
+  "updatedAt": "2026-06-04T...",
   "submittedAt": "2026-06-01T...",
   "trial_id": "NCT0001",
   "username": "jdoe",
