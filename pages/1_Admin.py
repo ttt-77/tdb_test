@@ -11,7 +11,7 @@ import json
 
 import streamlit as st
 
-from lib.schema import VALID_STATUSES
+from lib.schema import VALID_STATUSES, question_content_hash
 from lib.storage import (
     ADMIN_PASSWORD,
     add_review,
@@ -119,8 +119,18 @@ def render_questions(
                             key=f"cr_{submission_id}_{qid}_{j}", height=70,
                         )
 
-            # ---- existing reviews for this question ----
+            # ---- modified-since-last-review flag ----
             qreviews = [r for r in all_reviews if r.get("question_id") == qid]
+            if qreviews:
+                latest = qreviews[-1]
+                reviewed_hash = latest.get("question_hash")
+                if reviewed_hash and reviewed_hash != question_content_hash(q):
+                    st.warning(
+                        f"✏️ Modified since last review (was “{latest.get('status', '')}” "
+                        f"on `v{latest.get('version', '')}`) — needs re-review."
+                    )
+
+            # ---- existing reviews for this question ----
             st.markdown(f"**Reviews for this question ({len(qreviews)})**")
             _render_question_reviews(qreviews, current_version)
 
