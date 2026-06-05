@@ -20,6 +20,7 @@ from lib.schema import (
     Question,
     blank_question,
     next_question_id,
+    question_content_hash,
     rubrics_for_type,
 )
 from lib.storage import (
@@ -325,8 +326,19 @@ for i, q in enumerate(st.session_state.questions):
             r for r in st.session_state.pair_reviews if r.get("question_id") == q["id"]
         ]
         if q_reviews:
-            latest_status = q_reviews[-1].get("status", "")  # oldest-first list
-            if latest_status == "reviewed":
+            latest = q_reviews[-1]  # oldest-first list
+            latest_status = latest.get("status", "")
+            reviewed_hash = latest.get("question_hash")
+            current_hash = question_content_hash(q)
+            # If the question was edited since the latest review, that review no
+            # longer applies — flag it instead of showing the old status.
+            stale = reviewed_hash is not None and reviewed_hash != current_hash
+            if stale:
+                st.warning(
+                    f"✏️ Modified since last review (was “{latest_status}”) — "
+                    "resubmit for re-review."
+                )
+            elif latest_status == "reviewed":
                 st.success("✅ Pass — this question has been reviewed")
             elif latest_status == "needs_fix":
                 st.error("🔴 Needs fix")

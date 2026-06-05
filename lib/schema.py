@@ -1,5 +1,7 @@
 """Constants and helpers for the intake form schema."""
 
+import hashlib
+import json
 from typing import Literal, TypedDict, List
 
 DESIGN_ELEMENTS: List[str] = [
@@ -82,3 +84,27 @@ def next_question_id(existing: List[Question]) -> str:
             except ValueError:
                 pass
     return f"P-{(max(nums) + 1 if nums else 1):03d}"
+
+
+def question_content_hash(q: dict) -> str:
+    """Stable hash of a question's *content* (excludes its id).
+
+    Used to detect whether a question was edited since it was reviewed: if the
+    current content hash differs from the hash stored on a review, that review
+    no longer applies to the current content.
+    """
+    canonical = {
+        "design_element": q.get("design_element", ""),
+        "design_element_other": q.get("design_element_other", ""),
+        "question": q.get("question", ""),
+        "question_type": q.get("question_type", ""),
+        "rubrics": [
+            {
+                k: r.get(k, "")
+                for k in ("artifact", "dimension", "points", "criterion", "tolerance")
+            }
+            for r in (q.get("rubrics") or [])
+        ],
+    }
+    blob = json.dumps(canonical, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha1(blob.encode("utf-8")).hexdigest()

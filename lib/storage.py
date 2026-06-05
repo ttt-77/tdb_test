@@ -33,6 +33,8 @@ import requests
 from huggingface_hub import HfApi
 from huggingface_hub.utils import HfHubHTTPError
 
+from lib.schema import question_content_hash
+
 HF_TOKEN = os.environ.get("HF_TOKEN", "").strip()
 HF_DATASET_REPO = os.environ.get("HF_DATASET_REPO", "").strip()
 HF_DATASET_BRANCH = os.environ.get("HF_DATASET_BRANCH", "main").strip() or "main"
@@ -242,6 +244,14 @@ def add_review(
         "note": note,
         "question_id": question_id,
     }
+    # Snapshot the reviewed question's content so we can later tell if it was
+    # edited (which invalidates this review).
+    if question_id:
+        sub = get_submission(submission_id)
+        prompts = (sub.get("comparison") or {}).get("prompts") or [] if sub else []
+        q = next((x for x in prompts if x.get("id") == question_id), None)
+        if q is not None:
+            review["question_hash"] = question_content_hash(q)
     qtag = _safe(question_id) if question_id else "all"
     review_path = (
         f"{REVIEWS_PREFIX}/{base}/{_stamp(now)}__{_safe(reviewer) or 'anon'}__{qtag}.json"
