@@ -33,6 +33,45 @@ def status_badge(status: str) -> str:
     return f"{STATUS_EMOJI.get(status, '⚪')} {status}"
 
 
+def _md_cell(s: str) -> str:
+    """Escape a value for use inside a markdown table cell."""
+    return str(s or "").replace("|", "\\|").replace("\n", " ")
+
+
+def render_questions(submission: dict) -> None:
+    """Render the questionnaire in a readable (non-JSON) format."""
+    prompts = (submission.get("comparison") or {}).get("prompts") or []
+    st.markdown(f"#### Questions ({len(prompts)})")
+    if not prompts:
+        st.caption("No questions in this submission.")
+        return
+    for q in prompts:
+        de = q.get("design_element", "")
+        if de == "Others" and q.get("design_element_other"):
+            de = f"Others: {q['design_element_other']}"
+        st.markdown(
+            f"**`{q.get('id', '')}` · {de or '—'} · "
+            f"`{q.get('question_type', '') or '—'}`**"
+        )
+        st.markdown(f"> {q.get('question', '') or '_(no question text)_'}")
+        rubrics = q.get("rubrics") or []
+        if rubrics:
+            header = (
+                "| artifact | dimension | points | tolerance | criterion |\n"
+                "|---|---|---|---|---|\n"
+            )
+            rows = "\n".join(
+                f"| `{_md_cell(r.get('artifact'))}` "
+                f"| {_md_cell(r.get('dimension')) or '—'} "
+                f"| {_md_cell(r.get('points')) or '—'} "
+                f"| {_md_cell(r.get('tolerance')) or '—'} "
+                f"| {_md_cell(r.get('criterion')) or '—'} |"
+                for r in rubrics
+            )
+            st.markdown(header + rows)
+        st.markdown("")  # spacing
+
+
 # ------------- auth ------------------------------------------------------
 
 if "admin_authed" not in st.session_state:
@@ -110,6 +149,9 @@ for s in items:
                 f"**Latest version:** `{s.get('version', '')}`  \n"
                 f"**Last reviewer:** {s.get('reviewer', '') or '—'}"
             )
+
+        # ---- Questionnaire (readable) --------------------------------
+        render_questions(s.get("submission", {}))
 
         # ---- Review history across ALL versions of this trial --------
         all_reviews = s.get("all_reviews") or []
