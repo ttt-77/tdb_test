@@ -22,7 +22,12 @@ import json
 
 import streamlit as st
 
-from lib.schema import DESIGN_ELEMENTS, QUESTION_TYPES, rubrics_for_type
+from lib.schema import (
+    DESIGN_ELEMENTS,
+    IMPORTANCE_OPTIONS,
+    QUESTION_TYPES,
+    dimensions_for_type,
+)
 from lib.storage import (
     get_submission,
     hf_configured,
@@ -51,13 +56,19 @@ def kq(uid: int, field: str) -> str:
     return f"q{uid}_{field}"
 
 
-def kr(uid: int, j: int, field: str) -> str:
-    return f"q{uid}_r{j}_{field}"
+def kc(uid: int, j: int, cid: int, field: str) -> str:
+    """Key for a criterion field: question uid, dimension index j, criterion id."""
+    return f"q{uid}_r{j}_c{cid}_{field}"
 
 
 def _next_uid() -> int:
     st.session_state.uid_counter += 1
     return st.session_state.uid_counter
+
+
+def _next_cid() -> int:
+    st.session_state.cid_counter += 1
+    return st.session_state.cid_counter
 
 
 def _next_question_id() -> str:
@@ -78,6 +89,8 @@ if "questions" not in st.session_state:
     st.session_state.questions = []
 if "uid_counter" not in st.session_state:
     st.session_state.uid_counter = 0
+if "cid_counter" not in st.session_state:
+    st.session_state.cid_counter = 0
 if "trial_id" not in st.session_state:
     st.session_state.trial_id = ""
 if "username" not in st.session_state:
@@ -105,25 +118,46 @@ def _remove_question(idx: int) -> None:
     st.session_state.questions.pop(idx)
 
 
+def _clear_criterion_keys(uid: int, j: int, cid: int) -> None:
+    for f in ("criterion", "importance", "tolerance"):
+        st.session_state.pop(kc(uid, j, cid, f), None)
+
+
 def _on_type_change(uid: int) -> None:
-    """Regenerate rubric structure (and seed blank value fields) on type change."""
+    """Rebuild the dimension blocks (each with one starter criterion) on type change."""
     qt = st.session_state.get(kq(uid, "qt"), "")
     q = next((x for x in st.session_state.questions if x["_uid"] == uid), None)
     if q is None:
         return
-    # Clear old rubric value fields.
-    for j in range(len(q["rubrics"])):
-        for f in ("points", "tolerance", "criterion"):
-            st.session_state.pop(kr(uid, j, f), None)
-    # New structure (artifact + dimension fixed by type).
-    new_rubrics = [
-        {"artifact": r["artifact"], "dimension": r["dimension"]}
-        for r in rubrics_for_type(qt)
-    ]
+    # Clear all existing criterion fields.
+    for j, rub in enumerate(q["rubrics"]):
+        for cid in rub.get("criteria", []):
+            _clear_criterion_keys(uid, j, cid)
+    # New dimension blocks (artifact + dimension fixed by type), one criterion each.
+    new_rubrics = []
+    for dim in dimensions_for_type(qt):
+        cid = _next_cid()
+        new_rubrics.append(
+            {"artifact": dim["artifact"], "dimension": dim["dimension"], "criteria": [cid]}
+        )
     q["rubrics"] = new_rubrics
-    for j in range(len(new_rubrics)):
-        for f in ("points", "tolerance", "criterion"):
-            st.session_state[kr(uid, j, f)] = ""
+
+
+def _add_criterion(uid: int, j: int) -> None:
+    q = next((x for x in st.session_state.questions if x["_uid"] == uid), None)
+    if q is None or j >= len(q["rubrics"]):
+        return
+    q["rubrics"][j]["criteria"].append(_next_cid())
+
+
+def _remove_criterion(uid: int, j: int, cid: int) -> None:
+    q = next((x for x in st.session_state.questions if x["_uid"] == uid), None)
+    if q is None or j >= len(q["rubrics"]):
+        return
+    crits = q["rubrics"][j]["criteria"]
+    if cid in crits:
+        crits.remove(cid)
+        _clear_criterion_keys(uid, j, cid)
 
 
 def _build_prompts() -> list:
@@ -145,9 +179,16 @@ def _build_prompts() -> list:
                     {
                         "artifact": rub["artifact"],
                         "dimension": rub["dimension"],
-                        "points": st.session_state.get(kr(uid, j, "points"), ""),
-                        "tolerance": st.session_state.get(kr(uid, j, "tolerance"), ""),
-                        "criterion": st.session_state.get(kr(uid, j, "criterion"), ""),
+                        "criteria": [
+                            {
+                                "criterion": st.session_state.get(kc(uid, j, cid, "criterion"), ""),
+                                "importance": st.session_state.get(
+                                    kc(uid, j, cid, "importance"), IMPORTANCE_OPTIONS[0]
+                                ),
+                                "tolerance": st.session_state.get(kc(uid, j, cid, "tolerance"), ""),
+                            }
+                            for cid in rub.get("criteria", [])
+                        ],
                     }
                     for j, rub in enumerate(q["rubrics"])
                 ],
@@ -210,20 +251,39 @@ def _load_selected() -> None:
     new_questions = []
     for qp in prompts:
         uid = _next_uid()
-        rubrics = [
-            {"artifact": r.get("artifact", ""), "dimension": r.get("dimension", "")}
-            for r in (qp.get("rubrics") or [])
-        ]
-        new_questions.append({"_uid": uid, "rubrics": rubrics})
         st.session_state[kq(uid, "id")] = qp.get("id", "")
         st.session_state[kq(uid, "de")] = qp.get("design_element", "")
         st.session_state[kq(uid, "deother")] = qp.get("design_element_other", "")
         st.session_state[kq(uid, "qt")] = qp.get("question_type", "")
         st.session_state[kq(uid, "question")] = qp.get("question", "")
+
+        rubrics = []
         for j, r in enumerate(qp.get("rubrics") or []):
-            st.session_state[kr(uid, j, "points")] = r.get("points", "")
-            st.session_state[kr(uid, j, "tolerance")] = r.get("tolerance", "")
-            st.session_state[kr(uid, j, "criterion")] = r.get("criterion", "")
+            # New format has r["criteria"]; old format had a single
+            # points/criterion/tolerance on the rubric itself.
+            saved_crits = r.get("criteria")
+            if saved_crits is None:
+                saved_crits = [
+                    {
+                        "criterion": r.get("criterion", ""),
+                        "importance": IMPORTANCE_OPTIONS[0],
+                        "tolerance": r.get("tolerance", ""),
+                    }
+                ]
+            cids = []
+            for c in saved_crits:
+                cid = _next_cid()
+                cids.append(cid)
+                st.session_state[kc(uid, j, cid, "criterion")] = c.get("criterion", "")
+                imp = c.get("importance", "")
+                st.session_state[kc(uid, j, cid, "importance")] = (
+                    imp if imp in IMPORTANCE_OPTIONS else IMPORTANCE_OPTIONS[0]
+                )
+                st.session_state[kc(uid, j, cid, "tolerance")] = c.get("tolerance", "")
+            rubrics.append(
+                {"artifact": r.get("artifact", ""), "dimension": r.get("dimension", ""), "criteria": cids}
+            )
+        new_questions.append({"_uid": uid, "rubrics": rubrics})
 
     st.session_state.questions = new_questions
     st.session_state.loaded_version = record.get("version", "")
@@ -386,12 +446,38 @@ def _questions_fragment() -> None:
                             meta_parts.append(f"**Dimension:** {rub['dimension']}")
                         st.markdown(" · ".join(meta_parts))
 
-                        rc1, rc2 = st.columns(2)
-                        with rc1:
-                            st.text_input("points", key=kr(uid, j, "points"))
-                        with rc2:
-                            st.text_input("tolerance", key=kr(uid, j, "tolerance"))
-                        st.text_area("criterion", key=kr(uid, j, "criterion"), height=80)
+                        criteria = rub.get("criteria", [])
+                        for ci, cid in enumerate(criteria):
+                            st.text_area(
+                                f"criterion {ci + 1}",
+                                key=kc(uid, j, cid, "criterion"),
+                                height=70,
+                            )
+                            cc1, cc2, cc3 = st.columns([2, 2, 1])
+                            with cc1:
+                                st.selectbox(
+                                    "importance",
+                                    options=IMPORTANCE_OPTIONS,
+                                    key=kc(uid, j, cid, "importance"),
+                                )
+                            with cc2:
+                                st.text_input("tolerance", key=kc(uid, j, cid, "tolerance"))
+                            with cc3:
+                                st.write("")
+                                st.write("")
+                                st.button(
+                                    "✕",
+                                    key=f"rmc_{uid}_{j}_{cid}",
+                                    help="Remove this criterion",
+                                    on_click=_remove_criterion,
+                                    args=(uid, j, cid),
+                                )
+                        st.button(
+                            "+ Add criterion",
+                            key=f"addc_{uid}_{j}",
+                            on_click=_add_criterion,
+                            args=(uid, j),
+                        )
 
     st.button("+ Add question", on_click=_add_question)
 

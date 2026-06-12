@@ -22,13 +22,21 @@ Status = Literal["pending", "reviewed", "needs_fix"]
 
 VALID_STATUSES: List[str] = ["pending", "reviewed", "needs_fix"]
 
+# Each criterion's importance (replaces the old numeric "points").
+IMPORTANCE_OPTIONS: List[str] = ["HIGH", "medium", "low"]
+
+
+class Criterion(TypedDict):
+    criterion: str
+    importance: str
+    tolerance: str
+
 
 class Rubric(TypedDict):
+    # A dimension block; holds one or more criteria.
     artifact: str
     dimension: str
-    points: str
-    criterion: str
-    tolerance: str
+    criteria: List[Criterion]
 
 
 class Question(TypedDict):
@@ -40,25 +48,16 @@ class Question(TypedDict):
     rubrics: List[Rubric]
 
 
-def blank_rubric(artifact: str = "", dimension: str = "") -> Rubric:
-    return {
-        "artifact": artifact,
-        "dimension": dimension,
-        "points": "",
-        "criterion": "",
-        "tolerance": "",
-    }
-
-
-def rubrics_for_type(qt: str) -> List[Rubric]:
+def dimensions_for_type(qt: str):
+    """Fixed (artifact, dimension) blocks for a question type. The user fills in
+    one or more criteria under each."""
     if qt == "extraction_only":
-        return [blank_rubric("output.json", "")]
+        return [{"artifact": "output.json", "dimension": ""}]
     if qt == "derivation_required":
         return [
-            blank_rubric("output.json", "Inputs used"),
-            blank_rubric("output.json", "Calculated value"),
-            blank_rubric("output.json", "Method"),
-            blank_rubric("output.R", "Reproducibility"),
+            {"artifact": "output.json", "dimension": "Inputs used"},
+            {"artifact": "output.json", "dimension": "Calculated value"},
+            {"artifact": "output.json", "dimension": "Method"},
         ]
     return []
 
@@ -100,8 +99,16 @@ def question_content_hash(q: dict) -> str:
         "question_type": q.get("question_type", ""),
         "rubrics": [
             {
-                k: r.get(k, "")
-                for k in ("artifact", "dimension", "points", "criterion", "tolerance")
+                "artifact": r.get("artifact", ""),
+                "dimension": r.get("dimension", ""),
+                "criteria": [
+                    {
+                        "criterion": c.get("criterion", ""),
+                        "importance": c.get("importance", ""),
+                        "tolerance": c.get("tolerance", ""),
+                    }
+                    for c in (r.get("criteria") or [])
+                ],
             }
             for r in (q.get("rubrics") or [])
         ],

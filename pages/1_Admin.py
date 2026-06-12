@@ -97,26 +97,26 @@ def render_questions(
             rubrics = q.get("rubrics") or []
             if rubrics:
                 st.markdown(f"**Rubrics ({len(rubrics)})**")
-                for j, r in enumerate(rubrics):
-                    with st.container(border=True):
-                        meta = f"**Artifact:** `{r.get('artifact', '')}`"
-                        if r.get("dimension"):
-                            meta += f" · **Dimension:** {r['dimension']}"
-                        st.markdown(meta)
-                        rc1, rc2 = st.columns(2)
-                        with rc1:
-                            st.text_input(
-                                "points", value=r.get("points", ""), disabled=True,
-                                key=f"pt_{submission_id}_{qid}_{j}",
-                            )
-                        with rc2:
-                            st.text_input(
-                                "tolerance", value=r.get("tolerance", ""), disabled=True,
-                                key=f"to_{submission_id}_{qid}_{j}",
-                            )
-                        st.text_area(
-                            "criterion", value=r.get("criterion", ""), disabled=True,
-                            key=f"cr_{submission_id}_{qid}_{j}", height=70,
+                for r in rubrics:
+                    meta = f"**Artifact:** `{r.get('artifact', '')}`"
+                    if r.get("dimension"):
+                        meta += f" · **Dimension:** {r['dimension']}"
+                    st.markdown(meta)
+                    # New format: list of criteria; old format: single fields.
+                    criteria = r.get("criteria")
+                    if criteria is None:
+                        criteria = [
+                            {
+                                "criterion": r.get("criterion", ""),
+                                "importance": r.get("points", ""),
+                                "tolerance": r.get("tolerance", ""),
+                            }
+                        ]
+                    for ci, c in enumerate(criteria):
+                        st.markdown(
+                            f"&nbsp;&nbsp;{ci + 1}. _importance:_ **{c.get('importance', '') or '—'}** "
+                            f"· _tolerance:_ {c.get('tolerance', '') or '—'}  \n"
+                            f"&nbsp;&nbsp;&nbsp;&nbsp;{c.get('criterion', '') or '_(no criterion)_'}"
                         )
 
             # ---- modified-since-last-review flag ----
