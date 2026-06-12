@@ -22,3 +22,6 @@ data/
 
 # OS
 .DS_Store
+
+# LLM runner outputs
+llm/out/
