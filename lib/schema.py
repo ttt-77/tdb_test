@@ -23,7 +23,7 @@ Status = Literal["pending", "reviewed", "needs_fix"]
 VALID_STATUSES: List[str] = ["pending", "reviewed", "needs_fix"]
 
 # Each criterion's importance (replaces the old numeric "points").
-IMPORTANCE_OPTIONS: List[str] = ["HIGH", "medium", "low"]
+IMPORTANCE_OPTIONS: List[str] = ["High", "Medium", "Low"]
 
 
 class Criterion(TypedDict):

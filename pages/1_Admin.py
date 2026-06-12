@@ -81,16 +81,16 @@ def render_questions(
                 if q.get("design_element") == "Others" and q.get("design_element_other"):
                     de = f"Others: {q['design_element_other']}"
                 st.text_input(
-                    "design_element", value=de, disabled=True,
+                    "Design element", value=de, disabled=True,
                     key=f"de_{submission_id}_{qid}",
                 )
             with c2:
                 st.text_input(
-                    "question_type", value=q.get("question_type", "") or "—",
+                    "Question type", value=q.get("question_type", "") or "—",
                     disabled=True, key=f"qt_{submission_id}_{qid}",
                 )
             st.text_input(
-                "question", value=q.get("question", ""), disabled=True,
+                "Question", value=q.get("question", ""), disabled=True,
                 key=f"qq_{submission_id}_{qid}",
             )
 

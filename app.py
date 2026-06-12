@@ -283,10 +283,12 @@ def _load_selected() -> None:
                 cid = _next_cid()
                 cids.append(cid)
                 st.session_state[kc(uid, j, cid, "criterion")] = c.get("criterion", "")
-                imp = c.get("importance", "")
-                st.session_state[kc(uid, j, cid, "importance")] = (
-                    imp if imp in IMPORTANCE_OPTIONS else IMPORTANCE_OPTIONS[0]
+                imp = str(c.get("importance", "")).strip()
+                match = next(
+                    (o for o in IMPORTANCE_OPTIONS if o.lower() == imp.lower()),
+                    IMPORTANCE_OPTIONS[0],
                 )
+                st.session_state[kc(uid, j, cid, "importance")] = match
                 st.session_state[kc(uid, j, cid, "tolerance")] = c.get("tolerance", "")
             rubrics.append(
                 {"artifact": r.get("artifact", ""), "dimension": r.get("dimension", ""), "criteria": cids}
@@ -405,7 +407,7 @@ def _questions_fragment() -> None:
             col1, col2 = st.columns(2)
             with col1:
                 st.selectbox(
-                    "design_element",
+                    "Design element",
                     options=de_options,
                     key=kq(uid, "de"),
                     format_func=lambda x: "— select —" if x == "" else x,
@@ -414,7 +416,7 @@ def _questions_fragment() -> None:
                     st.text_input("Specify other design element", key=kq(uid, "deother"))
             with col2:
                 st.selectbox(
-                    "question_type",
+                    "Question type",
                     options=qt_options,
                     key=kq(uid, "qt"),
                     format_func=lambda x: "— select —" if x == "" else x,
@@ -423,7 +425,7 @@ def _questions_fragment() -> None:
                 )
 
             st.text_input(
-                "question", key=kq(uid, "question"), placeholder="e.g., Alpha allocated to PFS"
+                "Question", key=kq(uid, "question"), placeholder="e.g., Alpha allocated to PFS"
             )
 
             # Reviewer feedback for this question across all versions of the trial.
@@ -456,7 +458,7 @@ def _questions_fragment() -> None:
 
                         criteria = rub.get("criteria", [])
                         for ci, cid in enumerate(criteria):
-                            label = f"criterion {ci + 1}" + (" (optional)" if ci > 0 else "")
+                            label = f"Criterion {ci + 1}" + (" (optional)" if ci > 0 else "")
                             st.text_area(
                                 label,
                                 key=kc(uid, j, cid, "criterion"),
@@ -465,12 +467,12 @@ def _questions_fragment() -> None:
                             cc1, cc2, cc3 = st.columns([2, 2, 1])
                             with cc1:
                                 st.selectbox(
-                                    "importance",
+                                    "Importance",
                                     options=IMPORTANCE_OPTIONS,
                                     key=kc(uid, j, cid, "importance"),
                                 )
                             with cc2:
-                                st.text_input("tolerance", key=kc(uid, j, cid, "tolerance"))
+                                st.text_input("Tolerance", key=kc(uid, j, cid, "tolerance"))
                             with cc3:
                                 st.write("")
                                 st.write("")
@@ -537,7 +539,7 @@ def render_form() -> None:
             help="Document id (DOI folder) — used to load the SAP/protocol PDF.",
         )
     with c2:
-        st.text_input("username", key="username", placeholder="e.g., jdoe")
+        st.text_input("Username", key="username", placeholder="e.g., jdoe")
 
     st.button(
         "Find versions",
