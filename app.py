@@ -37,6 +37,13 @@ st.set_page_config(page_title="TDB Intake", page_icon="🔬", layout="wide")
 
 SOURCE_REPO = "trialdesignbench/source"
 
+# st.fragment (Streamlit >=1.37) isolates reruns; fall back to a no-op on older
+# versions so the app still runs (just without the perf isolation).
+fragment = getattr(st, "fragment", None) or getattr(st, "experimental_fragment", None)
+if fragment is None:
+    def fragment(func):  # type: ignore
+        return func
+
 _STATUS_EMOJI = {"pending": "🟡", "reviewed": "🟢", "needs_fix": "🔴"}
 
 
@@ -350,60 +357,10 @@ def render_pdf_panel() -> None:
 
 # ------------- form ------------------------------------------------------
 
-def render_form() -> None:
-    # top fields
-    c1, c2 = st.columns(2)
-    with c1:
-        st.text_input("trial_id", key="trial_id", placeholder="e.g., NCT01234567")
-    with c2:
-        st.text_input("username", key="username", placeholder="e.g., jdoe")
-
-    st.button(
-        "Find versions",
-        on_click=_find_versions,
-        help="List all previously submitted versions for this trial_id + username.",
-    )
-
-    versions = st.session_state.versions
-    if versions:
-        options = [v["submissionId"] for v in versions]
-
-        def _ver_label(sid: str) -> str:
-            v = next((x for x in versions if x["submissionId"] == sid), None)
-            if not v:
-                return sid
-            emoji = _STATUS_EMOJI.get(v.get("status", "pending"), "⚪")
-            rc = v.get("review_count", 0)
-            rtag = f"{rc} review(s)" if rc else "no reviews"
-            return (
-                f"{v['submittedAt']}  ·  {v['num_questions']} Q  ·  "
-                f"{emoji} {v.get('status','pending')} ({rtag})"
-            )
-
-        vc1, vc2 = st.columns([3, 1])
-        with vc1:
-            st.selectbox(
-                "Select a version to load",
-                options=options,
-                format_func=_ver_label,
-                key="version_select",
-            )
-        with vc2:
-            st.write("")
-            st.write("")
-            st.button("Load selected version", on_click=_load_selected, use_container_width=True)
-
-    # Overall reviewer feedback across all versions (per-question feedback is
-    # shown inside each question block below).
-    overall_history = [r for r in st.session_state.pair_reviews if not r.get("question_id")]
-    if overall_history:
-        with st.container(border=True):
-            st.markdown(f"**Overall reviewer feedback — all versions ({len(overall_history)})**")
-            _render_review_lines(overall_history)
-
-    st.divider()
-
-    # questions list
+@fragment
+def _questions_fragment() -> None:
+    """The questions editor + actions. Runs as a fragment so frequent edits
+    here don't trigger a full-app rerun (which would re-send the PDF)."""
     st.subheader("Questions")
     if not st.session_state.questions:
         st.caption('No questions yet. Click "Add question" below to begin.')
@@ -515,6 +472,64 @@ def render_form() -> None:
             ),
             language="json",
         )
+
+
+def render_form() -> None:
+    # top fields
+    c1, c2 = st.columns(2)
+    with c1:
+        st.text_input("trial_id", key="trial_id", placeholder="e.g., NCT01234567")
+    with c2:
+        st.text_input("username", key="username", placeholder="e.g., jdoe")
+
+    st.button(
+        "Find versions",
+        on_click=_find_versions,
+        help="List all previously submitted versions for this trial_id + username.",
+    )
+
+    versions = st.session_state.versions
+    if versions:
+        options = [v["submissionId"] for v in versions]
+
+        def _ver_label(sid: str) -> str:
+            v = next((x for x in versions if x["submissionId"] == sid), None)
+            if not v:
+                return sid
+            emoji = _STATUS_EMOJI.get(v.get("status", "pending"), "⚪")
+            rc = v.get("review_count", 0)
+            rtag = f"{rc} review(s)" if rc else "no reviews"
+            return (
+                f"{v['submittedAt']}  ·  {v['num_questions']} Q  ·  "
+                f"{emoji} {v.get('status','pending')} ({rtag})"
+            )
+
+        vc1, vc2 = st.columns([3, 1])
+        with vc1:
+            st.selectbox(
+                "Select a version to load",
+                options=options,
+                format_func=_ver_label,
+                key="version_select",
+            )
+        with vc2:
+            st.write("")
+            st.write("")
+            st.button("Load selected version", on_click=_load_selected, use_container_width=True)
+
+    # Overall reviewer feedback across all versions (per-question feedback is
+    # shown inside each question block below).
+    overall_history = [r for r in st.session_state.pair_reviews if not r.get("question_id")]
+    if overall_history:
+        with st.container(border=True):
+            st.markdown(f"**Overall reviewer feedback — all versions ({len(overall_history)})**")
+            _render_review_lines(overall_history)
+
+    st.divider()
+
+    # Questions + actions live in a fragment so editing them reruns only this
+    # part — NOT the heavy PDF panel on the left (avoids re-sending the PDF).
+    _questions_fragment()
 
 
 # ------------- layout ----------------------------------------------------
