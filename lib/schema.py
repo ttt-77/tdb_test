@@ -49,15 +49,16 @@ class Question(TypedDict):
 
 
 def dimensions_for_type(qt: str):
-    """Fixed (artifact, dimension) blocks for a question type. The user fills in
-    one or more criteria under each."""
+    """Fixed (artifact, dimension) blocks for a question type, each with the
+    number of criterion rows to show by default. The user fills in one or more
+    criteria under each; the first is primary, extras are optional."""
     if qt == "extraction_only":
-        return [{"artifact": "output.json", "dimension": ""}]
+        return [{"artifact": "output.json", "dimension": "", "default_criteria": 1}]
     if qt == "derivation_required":
         return [
-            {"artifact": "output.json", "dimension": "Inputs used"},
-            {"artifact": "output.json", "dimension": "Calculated value"},
-            {"artifact": "output.json", "dimension": "Method"},
+            {"artifact": "output.json", "dimension": "Inputs used", "default_criteria": 1},
+            {"artifact": "output.json", "dimension": "Calculated value", "default_criteria": 1},
+            {"artifact": "output.json", "dimension": "Method", "default_criteria": 3},
         ]
     return []
 

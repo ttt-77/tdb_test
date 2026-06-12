@@ -133,12 +133,17 @@ def _on_type_change(uid: int) -> None:
     for j, rub in enumerate(q["rubrics"]):
         for cid in rub.get("criteria", []):
             _clear_criterion_keys(uid, j, cid)
-    # New dimension blocks (artifact + dimension fixed by type), one criterion each.
+    # New dimension blocks (artifact + dimension fixed by type), each seeded
+    # with its default number of criterion rows (e.g. Method shows 3).
     new_rubrics = []
     for dim in dimensions_for_type(qt):
-        cid = _next_cid()
+        n = max(1, int(dim.get("default_criteria", 1)))
         new_rubrics.append(
-            {"artifact": dim["artifact"], "dimension": dim["dimension"], "criteria": [cid]}
+            {
+                "artifact": dim["artifact"],
+                "dimension": dim["dimension"],
+                "criteria": [_next_cid() for _ in range(n)],
+            }
         )
     q["rubrics"] = new_rubrics
 
@@ -166,6 +171,25 @@ def _build_prompts() -> list:
     for q in st.session_state.questions:
         uid = q["_uid"]
         de = st.session_state.get(kq(uid, "de"), "")
+        rubrics = []
+        for j, rub in enumerate(q["rubrics"]):
+            criteria = []
+            for cid in rub.get("criteria", []):
+                text = st.session_state.get(kc(uid, j, cid, "criterion"), "").strip()
+                if not text:
+                    continue  # skip empty/unfilled criteria (e.g. optional rows)
+                criteria.append(
+                    {
+                        "criterion": text,
+                        "importance": st.session_state.get(
+                            kc(uid, j, cid, "importance"), IMPORTANCE_OPTIONS[0]
+                        ),
+                        "tolerance": st.session_state.get(kc(uid, j, cid, "tolerance"), ""),
+                    }
+                )
+            rubrics.append(
+                {"artifact": rub["artifact"], "dimension": rub["dimension"], "criteria": criteria}
+            )
         prompts.append(
             {
                 "id": st.session_state.get(kq(uid, "id"), ""),
@@ -175,23 +199,7 @@ def _build_prompts() -> list:
                 ),
                 "question": st.session_state.get(kq(uid, "question"), ""),
                 "question_type": st.session_state.get(kq(uid, "qt"), ""),
-                "rubrics": [
-                    {
-                        "artifact": rub["artifact"],
-                        "dimension": rub["dimension"],
-                        "criteria": [
-                            {
-                                "criterion": st.session_state.get(kc(uid, j, cid, "criterion"), ""),
-                                "importance": st.session_state.get(
-                                    kc(uid, j, cid, "importance"), IMPORTANCE_OPTIONS[0]
-                                ),
-                                "tolerance": st.session_state.get(kc(uid, j, cid, "tolerance"), ""),
-                            }
-                            for cid in rub.get("criteria", [])
-                        ],
-                    }
-                    for j, rub in enumerate(q["rubrics"])
-                ],
+                "rubrics": rubrics,
             }
         )
     return prompts
@@ -448,8 +456,9 @@ def _questions_fragment() -> None:
 
                         criteria = rub.get("criteria", [])
                         for ci, cid in enumerate(criteria):
+                            label = f"criterion {ci + 1}" + (" (optional)" if ci > 0 else "")
                             st.text_area(
-                                f"criterion {ci + 1}",
+                                label,
                                 key=kc(uid, j, cid, "criterion"),
                                 height=70,
                             )
