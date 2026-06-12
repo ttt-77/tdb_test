@@ -19,10 +19,8 @@ the one-rerun-lag ("type twice") bug that comes from mixing value= with key=.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import streamlit as st
-import streamlit.components.v1 as components
 
 from lib.schema import DESIGN_ELEMENTS, QUESTION_TYPES, rubrics_for_type
 from lib.storage import (
@@ -280,15 +278,6 @@ def _render_review_lines(reviews: list) -> None:
 
 # ------------- PDF reference panel ---------------------------------------
 
-@st.cache_data(show_spinner=False)
-def _load_nct_map() -> dict:
-    p = Path(__file__).parent / "assets" / "nct_to_docs.json"
-    try:
-        return json.loads(p.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-
-
 def _pdf_url(doc: str, kind: str) -> str:
     return (
         f"https://huggingface.co/datasets/{SOURCE_REPO}"
@@ -296,63 +285,31 @@ def _pdf_url(doc: str, kind: str) -> str:
     )
 
 
-@st.cache_data(show_spinner=False)
-def _fetch_pdf(url: str) -> bytes:
-    import requests
-
-    r = requests.get(url, timeout=60)
-    r.raise_for_status()
-    return r.content
-
-
-@st.cache_data(show_spinner=False)
-def _pdf_b64(url: str) -> str:
-    import base64
-
-    return base64.b64encode(_fetch_pdf(url)).decode("ascii")
-
-
 def render_pdf_panel() -> None:
-    """Left-hand panel: show the trial's SAP / protocol PDF for reference.
+    """Left-hand panel: links to the document's SAP / protocol PDF.
 
-    The PDF is fetched server-side and embedded as a base64 data: URI — we do
-    NOT iframe huggingface.co directly, because HF sends X-Frame-Options and
-    Chrome blocks that ("This page has been blocked by Chrome").
+    The entered trial_id is used directly as the document id (e.g.
+    ``10.1200_jco.22.01989``) so there's no ambiguous NCT->document mapping.
+    We only link out (open in a new tab) — embedding HF PDFs inline is blocked
+    by X-Frame-Options and re-sending bytes made the form laggy.
     """
     st.markdown("#### 📄 Reference document")
-    trial_id = st.session_state.get("trial_id", "").strip()
-    if not trial_id:
-        st.caption("Enter a trial_id (on the right) to load its SAP / protocol PDF.")
+    doc = st.session_state.get("trial_id", "").strip()
+    if not doc:
+        st.caption(
+            "Enter the document id as the trial_id "
+            "(e.g. `10.1200_jco.22.01989`) to get its PDF links."
+        )
         return
-    docs = _load_nct_map().get(trial_id, [])
-    if not docs:
-        st.caption(f"No source document is mapped for `{trial_id}`.")
-        manual = st.text_input("Document id (DOI folder), if you know it", key="pdf_manual_doc")
-        if not manual.strip():
-            return
-        docs = [manual.strip()]
-    doc = docs[0] if len(docs) == 1 else st.selectbox("Document", docs, key="pdf_doc")
-    kind = st.radio("File", ["sap", "protocol"], horizontal=True, key="pdf_kind")
-    url = _pdf_url(doc, kind)
-    st.markdown(f"[Open {kind}.pdf in a new tab ↗]({url})")
-
-    try:
-        b64 = _pdf_b64(url)
-    except Exception as e:
-        st.warning(f"Could not load this PDF ({e}). Use the link above.")
-        return
-
-    components.html(
-        f'<iframe src="data:application/pdf;base64,{b64}" '
-        f'width="100%" height="820" style="border:1px solid #ddd;"></iframe>',
-        height=840,
+    sap_url = _pdf_url(doc, "sap")
+    proto_url = _pdf_url(doc, "protocol")
+    st.markdown(
+        f'<a href="{sap_url}" target="_blank" rel="noopener">📄 Open sap.pdf in a new tab ↗</a>'
+        "<br>"
+        f'<a href="{proto_url}" target="_blank" rel="noopener">📄 Open protocol.pdf in a new tab ↗</a>',
+        unsafe_allow_html=True,
     )
-    st.download_button(
-        f"Download {kind}.pdf",
-        data=_fetch_pdf(url),
-        file_name=f"{doc}__{kind}.pdf",
-        mime="application/pdf",
-    )
+    st.caption(f"Document: `{doc}`")
 
 
 # ------------- form ------------------------------------------------------

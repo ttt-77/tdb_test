@@ -15,10 +15,11 @@ A Streamlit intake form for trial statisticians. Submissions are saved to a **Hu
 
 ## What it does
 
-- **Reference PDF panel** — a wide two-column layout shows the trial's SAP /
-  protocol PDF on the left (resolved from the entered `trial_id` via
-  `assets/nct_to_docs.json`, served from the public `trialdesignbench/source`
-  dataset) so the statistician can read it while filling the form on the right.
+- **Reference PDF panel** — a wide two-column layout shows, on the left,
+  open-in-new-tab links to the document's `sap.pdf` / `protocol.pdf` in the
+  public `trialdesignbench/source` dataset. The entered `trial_id` is used
+  directly as the document id (e.g. `10.1200_jco.22.01989`), so there's no
+  ambiguous NCT→document mapping.
 - **Form (`app.py`)** — statisticians enter `trial_id`, `username`, and a list of questions. Each question has:
   - `design_element` (dropdown — when "Others" is picked, a free-text input appears)
   - `question_type` (dropdown — `extraction_only` / `derivation_required`)
