@@ -297,8 +297,8 @@ def render_pdf_panel() -> None:
     doc = st.session_state.get("trial_id", "").strip()
     if not doc:
         st.caption(
-            "Enter the document id as the trial_id "
-            "(e.g. `10.1200_jco.22.01989`) to get its PDF links."
+            "Enter the DOI (e.g. `10.1200_jco.22.01989`) on the right "
+            "to get its PDF links."
         )
         return
     sap_url = _pdf_url(doc, "sap")
@@ -435,7 +435,12 @@ def render_form() -> None:
     # top fields
     c1, c2 = st.columns(2)
     with c1:
-        st.text_input("trial_id", key="trial_id", placeholder="e.g., NCT01234567")
+        st.text_input(
+            "DOI",
+            key="trial_id",
+            placeholder="e.g., 10.1200_jco.22.01989",
+            help="Document id (DOI folder) — used to load the SAP/protocol PDF.",
+        )
     with c2:
         st.text_input("username", key="username", placeholder="e.g., jdoe")
 
