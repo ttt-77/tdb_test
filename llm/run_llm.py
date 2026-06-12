@@ -98,9 +98,33 @@ def _hf():
     return HfApi(token=token), token
 
 
-def load_submission(submission: str) -> dict:
-    """Load the latest version of submissions/<submission>/<stamp>.json."""
+def load_submission(submission: str, version: str | None = None) -> dict:
+    """Load a submission version from HF.
+
+    If `version` is given, use that exact file; otherwise use the latest
+    (max timestamp) under submissions/<submission>/.
+    """
     api, token = _hf()
+    from huggingface_hub import hf_hub_download
+
+    # Pin a specific version file if requested.
+    if version:
+        # Accept a bare basename, a full repo path, or a URL-encoded '+'.
+        vname = version.rsplit("/", 1)[-1].replace("%2B", "+")
+        if not vname.endswith(".json"):
+            vname += ".json"
+        target = f"submissions/{submission}/{vname}"
+        try:
+            path = hf_hub_download(
+                repo_id=INTAKE_REPO, repo_type="dataset", filename=target, token=token
+            )
+        except Exception as e:
+            sys.exit(f"Could not download pinned version {target} from {INTAKE_REPO}: {e}")
+        with open(path, encoding="utf-8") as fh:
+            rec = json.load(fh)
+        print(f"  using pinned version: {vname}")
+        return rec
+
     prefix = f"submissions/{submission}/"
     try:
         files = api.list_repo_files(repo_id=INTAKE_REPO, repo_type="dataset")
@@ -120,8 +144,6 @@ def load_submission(submission: str) -> dict:
     # max basename is the most recent submission.
     versions.sort(key=lambda f: f.rsplit("/", 1)[-1])
     latest = versions[-1]
-    from huggingface_hub import hf_hub_download
-
     path = hf_hub_download(
         repo_id=INTAKE_REPO, repo_type="dataset", filename=latest, token=token
     )
@@ -357,6 +379,9 @@ def main() -> None:
                     help="submission folder name <trial>__<user> (read from HF)")
     ap.add_argument("--submission-file", default=None,
                     help="local submission JSON path (skips HF; no HF_TOKEN needed)")
+    ap.add_argument("--version", default=None,
+                    help="pin an exact version file under submissions/<submission>/ "
+                         "(e.g. 2026-06-07T17-23-05-870000+00-00.json); default: latest")
     ap.add_argument("--doc-id", default=None,
                     help="documents/<doc-id> folder (default: resolve from NCT via tdr.parquet)")
     ap.add_argument("--sap-file", default=None,
@@ -375,7 +400,7 @@ def main() -> None:
     if args.submission_file:
         submission = load_submission_from_file(args.submission_file)
     else:
-        submission = load_submission(args.submission)
+        submission = load_submission(args.submission, version=args.version)
     # --- SAP: local file or HF ---
     if args.sap_file:
         sap_text = load_sap_from_file(args.sap_file)

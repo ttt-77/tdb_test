@@ -46,11 +46,17 @@ python run_llm.py \
 
 ```bash
 python run_llm.py --submission NCT02578680__EricZ
+# pin an exact submission version (default is the latest):
+python run_llm.py --submission NCT02578680__EricZ \
+    --version 2026-06-07T17-23-05-870000+00-00.json
 # pick a specific SAP doc + models:
 python run_llm.py --submission NCT02578680__EricZ \
     --doc-id 10.1056_nejmoa1801005 \
     --models claude-opus-4-8 gpt-4o
 ```
+
+`--version` accepts the bare filename, a full repo path, or a URL-encoded `%2B`
+(it normalizes to the literal `+`).
 
 ## What it does
 
