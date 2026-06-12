@@ -19,8 +19,10 @@ the one-rerun-lag ("type twice") bug that comes from mixing value= with key=.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 from lib.schema import DESIGN_ELEMENTS, QUESTION_TYPES, rubrics_for_type
 from lib.storage import (
@@ -31,7 +33,9 @@ from lib.storage import (
     save_submission,
 )
 
-st.set_page_config(page_title="TDB Intake", page_icon="🔬", layout="centered")
+st.set_page_config(page_title="TDB Intake", page_icon="🔬", layout="wide")
+
+SOURCE_REPO = "trialdesignbench/source"
 
 _STATUS_EMOJI = {"pending": "🟡", "reviewed": "🟢", "needs_fix": "🔴"}
 
@@ -267,183 +271,244 @@ def _render_review_lines(reviews: list) -> None:
         st.markdown(line)
 
 
-# ------------- header ----------------------------------------------------
+# ------------- PDF reference panel ---------------------------------------
+
+@st.cache_data(show_spinner=False)
+def _load_nct_map() -> dict:
+    p = Path(__file__).parent / "assets" / "nct_to_docs.json"
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _pdf_url(doc: str, kind: str) -> str:
+    return (
+        f"https://huggingface.co/datasets/{SOURCE_REPO}"
+        f"/resolve/main/documents/{doc}/{kind}.pdf"
+    )
+
+
+@st.cache_data(show_spinner=False)
+def _fetch_pdf(url: str) -> bytes:
+    import requests
+
+    r = requests.get(url, timeout=60)
+    r.raise_for_status()
+    return r.content
+
+
+def render_pdf_panel() -> None:
+    """Left-hand panel: show the trial's SAP / protocol PDF for reference."""
+    st.markdown("#### 📄 Reference document")
+    trial_id = st.session_state.get("trial_id", "").strip()
+    if not trial_id:
+        st.caption("Enter a trial_id (on the right) to load its SAP / protocol PDF.")
+        return
+    docs = _load_nct_map().get(trial_id, [])
+    if not docs:
+        st.caption(f"No source document is mapped for `{trial_id}`.")
+        manual = st.text_input("Document id (DOI folder), if you know it", key="pdf_manual_doc")
+        if not manual.strip():
+            return
+        docs = [manual.strip()]
+    doc = docs[0] if len(docs) == 1 else st.selectbox("Document", docs, key="pdf_doc")
+    kind = st.radio("File", ["sap", "protocol"], horizontal=True, key="pdf_kind")
+    url = _pdf_url(doc, kind)
+    st.markdown(f"[Open {kind}.pdf in a new tab ↗]({url})")
+    components.iframe(url, height=820, scrolling=True)
+    try:
+        st.download_button(
+            f"Download {kind}.pdf",
+            data=_fetch_pdf(url),
+            file_name=f"{doc}__{kind}.pdf",
+            mime="application/pdf",
+        )
+    except Exception as e:
+        st.caption(f"(download unavailable: {e})")
+
+
+# ------------- form ------------------------------------------------------
+
+def render_form() -> None:
+    # top fields
+    c1, c2 = st.columns(2)
+    with c1:
+        st.text_input("trial_id", key="trial_id", placeholder="e.g., NCT01234567")
+    with c2:
+        st.text_input("username", key="username", placeholder="e.g., jdoe")
+
+    st.button(
+        "Find versions",
+        on_click=_find_versions,
+        help="List all previously submitted versions for this trial_id + username.",
+    )
+
+    versions = st.session_state.versions
+    if versions:
+        options = [v["submissionId"] for v in versions]
+
+        def _ver_label(sid: str) -> str:
+            v = next((x for x in versions if x["submissionId"] == sid), None)
+            if not v:
+                return sid
+            emoji = _STATUS_EMOJI.get(v.get("status", "pending"), "⚪")
+            rc = v.get("review_count", 0)
+            rtag = f"{rc} review(s)" if rc else "no reviews"
+            return (
+                f"{v['submittedAt']}  ·  {v['num_questions']} Q  ·  "
+                f"{emoji} {v.get('status','pending')} ({rtag})"
+            )
+
+        vc1, vc2 = st.columns([3, 1])
+        with vc1:
+            st.selectbox(
+                "Select a version to load",
+                options=options,
+                format_func=_ver_label,
+                key="version_select",
+            )
+        with vc2:
+            st.write("")
+            st.write("")
+            st.button("Load selected version", on_click=_load_selected, use_container_width=True)
+
+    # Overall reviewer feedback across all versions (per-question feedback is
+    # shown inside each question block below).
+    overall_history = [r for r in st.session_state.pair_reviews if not r.get("question_id")]
+    if overall_history:
+        with st.container(border=True):
+            st.markdown(f"**Overall reviewer feedback — all versions ({len(overall_history)})**")
+            _render_review_lines(overall_history)
+
+    st.divider()
+
+    # questions list
+    st.subheader("Questions")
+    if not st.session_state.questions:
+        st.caption('No questions yet. Click "Add question" below to begin.')
+
+    de_options = [""] + DESIGN_ELEMENTS
+    qt_options = [""] + QUESTION_TYPES
+
+    for i, q in enumerate(st.session_state.questions):
+        uid = q["_uid"]
+        with st.container(border=True):
+            head_l, head_r = st.columns([6, 1])
+            with head_l:
+                st.text_input("id", key=kq(uid, "id"), label_visibility="collapsed")
+            with head_r:
+                st.button("Remove", key=f"rm_{uid}", on_click=_remove_question, args=(i,))
+
+            col1, col2 = st.columns(2)
+            with col1:
+                st.selectbox(
+                    "design_element",
+                    options=de_options,
+                    key=kq(uid, "de"),
+                    format_func=lambda x: "— select —" if x == "" else x,
+                )
+                if st.session_state.get(kq(uid, "de")) == "Others":
+                    st.text_input("Specify other design element", key=kq(uid, "deother"))
+            with col2:
+                st.selectbox(
+                    "question_type",
+                    options=qt_options,
+                    key=kq(uid, "qt"),
+                    format_func=lambda x: "— select —" if x == "" else x,
+                    on_change=_on_type_change,
+                    args=(uid,),
+                )
+
+            st.text_input(
+                "question", key=kq(uid, "question"), placeholder="e.g., Alpha allocated to PFS"
+            )
+
+            # Reviewer feedback for this question across all versions of the trial.
+            qid_val = st.session_state.get(kq(uid, "id"), "")
+            q_reviews = [
+                r for r in st.session_state.pair_reviews if r.get("question_id") == qid_val
+            ]
+            if q_reviews:
+                latest_status = q_reviews[-1].get("status", "")  # oldest-first list
+                if latest_status == "reviewed":
+                    st.success("✅ Pass — this question has been reviewed")
+                elif latest_status == "needs_fix":
+                    st.error("🔴 Needs fix")
+                elif latest_status == "pending":
+                    st.warning("🟡 Pending review")
+                with st.container(border=True):
+                    st.markdown(
+                        f"**Reviewer feedback on this question — all versions ({len(q_reviews)})**"
+                    )
+                    _render_review_lines(q_reviews)
+
+            if q["rubrics"]:
+                st.markdown(f"**Rubrics ({len(q['rubrics'])})**")
+                for j, rub in enumerate(q["rubrics"]):
+                    with st.container(border=True):
+                        meta_parts = [f"**Artifact:** `{rub['artifact']}`"]
+                        if rub["dimension"]:
+                            meta_parts.append(f"**Dimension:** {rub['dimension']}")
+                        st.markdown(" · ".join(meta_parts))
+
+                        rc1, rc2 = st.columns(2)
+                        with rc1:
+                            st.text_input("points", key=kr(uid, j, "points"))
+                        with rc2:
+                            st.text_input("tolerance", key=kr(uid, j, "tolerance"))
+                        st.text_area("criterion", key=kr(uid, j, "criterion"), height=80)
+
+    st.button("+ Add question", on_click=_add_question)
+
+    st.divider()
+
+    # actions
+    action_l, action_r = st.columns([1, 1])
+    with action_l:
+        st.button("Save draft", on_click=_save_draft, use_container_width=True)
+    with action_r:
+        st.button("Submit", on_click=_submit, type="primary", use_container_width=True)
+
+    # status banner
+    res = st.session_state.last_result
+    if res:
+        if res["kind"] == "success":
+            st.success(res["msg"])
+            if res.get("url"):
+                st.markdown(f"[View on Hugging Face]({res['url']})")
+        elif res["kind"] == "error":
+            st.error(res["msg"])
+        else:
+            st.info(res["msg"])
+
+    with st.expander("Debug: current form state (JSON)"):
+        st.code(
+            json.dumps(
+                {
+                    "trial_id": st.session_state.trial_id,
+                    "username": st.session_state.username,
+                    "prompts": _build_prompts(),
+                },
+                indent=2,
+                ensure_ascii=False,
+            ),
+            language="json",
+        )
+
+
+# ------------- layout ----------------------------------------------------
 
 st.title("Trial Design Benchmark")
 st.caption("Statistician intake form")
-
 if not hf_configured:
     st.info(
         "ℹ️ HF env vars not set — submissions will be written to `./data/submissions/` "
         "(local dev mode)."
     )
 
-# ------------- top fields ------------------------------------------------
-
-c1, c2 = st.columns(2)
-with c1:
-    st.text_input("trial_id", key="trial_id", placeholder="e.g., NCT01234567")
-with c2:
-    st.text_input("username", key="username", placeholder="e.g., jdoe")
-
-st.button(
-    "Find versions",
-    on_click=_find_versions,
-    help="List all previously submitted versions for this trial_id + username.",
-)
-
-versions = st.session_state.versions
-if versions:
-    options = [v["submissionId"] for v in versions]
-
-    def _ver_label(sid: str) -> str:
-        v = next((x for x in versions if x["submissionId"] == sid), None)
-        if not v:
-            return sid
-        emoji = _STATUS_EMOJI.get(v.get("status", "pending"), "⚪")
-        rc = v.get("review_count", 0)
-        rtag = f"{rc} review(s)" if rc else "no reviews"
-        return (
-            f"{v['submittedAt']}  ·  {v['num_questions']} Q  ·  "
-            f"{emoji} {v.get('status','pending')} ({rtag})"
-        )
-
-    vc1, vc2 = st.columns([3, 1])
-    with vc1:
-        st.selectbox(
-            "Select a version to load",
-            options=options,
-            format_func=_ver_label,
-            key="version_select",
-        )
-    with vc2:
-        st.write("")
-        st.write("")
-        st.button("Load selected version", on_click=_load_selected, use_container_width=True)
-
-# Overall reviewer feedback across all versions (per-question feedback is shown
-# inside each question block below).
-overall_history = [r for r in st.session_state.pair_reviews if not r.get("question_id")]
-if overall_history:
-    with st.container(border=True):
-        st.markdown(f"**Overall reviewer feedback — all versions ({len(overall_history)})**")
-        _render_review_lines(overall_history)
-
-st.divider()
-
-# ------------- questions list --------------------------------------------
-
-st.subheader("Questions")
-
-if not st.session_state.questions:
-    st.caption('No questions yet. Click "Add question" below to begin.')
-
-de_options = [""] + DESIGN_ELEMENTS
-qt_options = [""] + QUESTION_TYPES
-
-for i, q in enumerate(st.session_state.questions):
-    uid = q["_uid"]
-    with st.container(border=True):
-        head_l, head_r = st.columns([6, 1])
-        with head_l:
-            st.text_input("id", key=kq(uid, "id"), label_visibility="collapsed")
-        with head_r:
-            st.button("Remove", key=f"rm_{uid}", on_click=_remove_question, args=(i,))
-
-        col1, col2 = st.columns(2)
-        with col1:
-            st.selectbox(
-                "design_element",
-                options=de_options,
-                key=kq(uid, "de"),
-                format_func=lambda x: "— select —" if x == "" else x,
-            )
-            if st.session_state.get(kq(uid, "de")) == "Others":
-                st.text_input("Specify other design element", key=kq(uid, "deother"))
-        with col2:
-            st.selectbox(
-                "question_type",
-                options=qt_options,
-                key=kq(uid, "qt"),
-                format_func=lambda x: "— select —" if x == "" else x,
-                on_change=_on_type_change,
-                args=(uid,),
-            )
-
-        st.text_input(
-            "question", key=kq(uid, "question"), placeholder="e.g., Alpha allocated to PFS"
-        )
-
-        # Reviewer feedback for this question across all versions of the trial.
-        qid_val = st.session_state.get(kq(uid, "id"), "")
-        q_reviews = [
-            r for r in st.session_state.pair_reviews if r.get("question_id") == qid_val
-        ]
-        if q_reviews:
-            latest_status = q_reviews[-1].get("status", "")  # oldest-first list
-            if latest_status == "reviewed":
-                st.success("✅ Pass — this question has been reviewed")
-            elif latest_status == "needs_fix":
-                st.error("🔴 Needs fix")
-            elif latest_status == "pending":
-                st.warning("🟡 Pending review")
-            with st.container(border=True):
-                st.markdown(
-                    f"**Reviewer feedback on this question — all versions ({len(q_reviews)})**"
-                )
-                _render_review_lines(q_reviews)
-
-        if q["rubrics"]:
-            st.markdown(f"**Rubrics ({len(q['rubrics'])})**")
-            for j, rub in enumerate(q["rubrics"]):
-                with st.container(border=True):
-                    meta_parts = [f"**Artifact:** `{rub['artifact']}`"]
-                    if rub["dimension"]:
-                        meta_parts.append(f"**Dimension:** {rub['dimension']}")
-                    st.markdown(" · ".join(meta_parts))
-
-                    rc1, rc2 = st.columns(2)
-                    with rc1:
-                        st.text_input("points", key=kr(uid, j, "points"))
-                    with rc2:
-                        st.text_input("tolerance", key=kr(uid, j, "tolerance"))
-                    st.text_area("criterion", key=kr(uid, j, "criterion"), height=80)
-
-st.button("+ Add question", on_click=_add_question)
-
-st.divider()
-
-# ------------- actions ---------------------------------------------------
-
-action_l, action_r = st.columns([1, 1])
-with action_l:
-    st.button("Save draft", on_click=_save_draft, use_container_width=True)
-with action_r:
-    st.button("Submit", on_click=_submit, type="primary", use_container_width=True)
-
-# ------------- status banner ---------------------------------------------
-
-res = st.session_state.last_result
-if res:
-    if res["kind"] == "success":
-        st.success(res["msg"])
-        if res.get("url"):
-            st.markdown(f"[View on Hugging Face]({res['url']})")
-    elif res["kind"] == "error":
-        st.error(res["msg"])
-    else:
-        st.info(res["msg"])
-
-with st.expander("Debug: current form state (JSON)"):
-    st.code(
-        json.dumps(
-            {
-                "trial_id": st.session_state.trial_id,
-                "username": st.session_state.username,
-                "prompts": _build_prompts(),
-            },
-            indent=2,
-            ensure_ascii=False,
-        ),
-        language="json",
-    )
+col_pdf, col_form = st.columns([5, 7], gap="large")
+with col_pdf:
+    render_pdf_panel()
+with col_form:
+    render_form()
