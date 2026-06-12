@@ -1,4 +1,14 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "huggingface_hub>=0.25",
+#     "pandas>=2.0",
+#     "pyarrow>=15",
+#     "anthropic>=0.40",
+#     "openai>=1.40",
+# ]
+# ///
 """Populate a Trial Design Benchmark submission's answers by running LLMs.
 
 For one intake submission it:
@@ -99,15 +109,16 @@ def load_submission(submission: str) -> dict:
             f"Could not list {INTAKE_REPO} (private?). Set HF_TOKEN with read "
             f"access. Error: {e}"
         )
-    versions = sorted(
-        f for f in files if f.startswith(prefix) and f.endswith(".json")
-    )
+    versions = [f for f in files if f.startswith(prefix) and f.endswith(".json")]
     if not versions:
         # Fall back: maybe the submission is a single flat file.
         flat = [f for f in files if f == f"submissions/{submission}.json"]
         if not flat:
             sys.exit(f"No submission files found under {prefix} in {INTAKE_REPO}.")
         versions = flat
+    # Version filenames are ISO timestamps (zero-padded, fixed format), so the
+    # max basename is the most recent submission.
+    versions.sort(key=lambda f: f.rsplit("/", 1)[-1])
     latest = versions[-1]
     from huggingface_hub import hf_hub_download
 
@@ -116,7 +127,7 @@ def load_submission(submission: str) -> dict:
     )
     with open(path, encoding="utf-8") as fh:
         rec = json.load(fh)
-    print(f"  submission version: {latest}")
+    print(f"  found {len(versions)} version(s); using latest: {latest.rsplit('/', 1)[-1]}")
     return rec
 
 

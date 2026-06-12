@@ -8,15 +8,22 @@ The script only **reads** from HF and **writes outputs locally** — it never
 uploads anything to Hugging Face. You can also run it **fully local** (local
 input files, no HF access, no `HF_TOKEN`).
 
-## Setup
+## Setup (uv)
+
+The script declares its dependencies inline (PEP 723), so `uv run` creates an
+isolated environment and installs them automatically — no manual venv/pip.
 
 ```bash
-pip install -r requirements.txt
+# install uv once: https://docs.astral.sh/uv/  (curl -LsSf https://astral.sh/uv/install.sh | sh)
 export ANTHROPIC_API_KEY=...      # for claude-* models
 export OPENAI_API_KEY=...         # for gpt-* models
 # only if you read inputs from HF (not needed for fully-local mode):
 export HF_TOKEN=hf_...            # read access to the private intake_form_data repo
+
+uv run run_llm.py --submission NCT02578680__EricZ
 ```
+
+(Prefer plain pip? `pip install -r requirements.txt` then `python run_llm.py ...`.)
 
 ## Run — fully local (no HF)
 
