@@ -298,8 +298,20 @@ def _fetch_pdf(url: str) -> bytes:
     return r.content
 
 
+@st.cache_data(show_spinner=False)
+def _pdf_b64(url: str) -> str:
+    import base64
+
+    return base64.b64encode(_fetch_pdf(url)).decode("ascii")
+
+
 def render_pdf_panel() -> None:
-    """Left-hand panel: show the trial's SAP / protocol PDF for reference."""
+    """Left-hand panel: show the trial's SAP / protocol PDF for reference.
+
+    The PDF is fetched server-side and embedded as a base64 data: URI — we do
+    NOT iframe huggingface.co directly, because HF sends X-Frame-Options and
+    Chrome blocks that ("This page has been blocked by Chrome").
+    """
     st.markdown("#### 📄 Reference document")
     trial_id = st.session_state.get("trial_id", "").strip()
     if not trial_id:
@@ -316,16 +328,24 @@ def render_pdf_panel() -> None:
     kind = st.radio("File", ["sap", "protocol"], horizontal=True, key="pdf_kind")
     url = _pdf_url(doc, kind)
     st.markdown(f"[Open {kind}.pdf in a new tab ↗]({url})")
-    components.iframe(url, height=820, scrolling=True)
+
     try:
-        st.download_button(
-            f"Download {kind}.pdf",
-            data=_fetch_pdf(url),
-            file_name=f"{doc}__{kind}.pdf",
-            mime="application/pdf",
-        )
+        b64 = _pdf_b64(url)
     except Exception as e:
-        st.caption(f"(download unavailable: {e})")
+        st.warning(f"Could not load this PDF ({e}). Use the link above.")
+        return
+
+    components.html(
+        f'<iframe src="data:application/pdf;base64,{b64}" '
+        f'width="100%" height="820" style="border:1px solid #ddd;"></iframe>',
+        height=840,
+    )
+    st.download_button(
+        f"Download {kind}.pdf",
+        data=_fetch_pdf(url),
+        file_name=f"{doc}__{kind}.pdf",
+        mime="application/pdf",
+    )
 
 
 # ------------- form ------------------------------------------------------
