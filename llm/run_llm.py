@@ -120,6 +120,19 @@ def load_submission(submission: str) -> dict:
     return rec
 
 
+def load_submission_from_file(path: str) -> dict:
+    """Load a submission JSON from a local file."""
+    p = Path(path)
+    if not p.exists():
+        sys.exit(f"--submission-file not found: {path}")
+    rec = json.loads(p.read_text(encoding="utf-8"))
+    # Accept either a full submission record or a bare {trial_id, username, prompts}.
+    if "comparison" not in rec and "prompts" in rec:
+        rec = {"comparison": rec}
+    print(f"  submission file: {path}")
+    return rec
+
+
 def resolve_doc_id(nct_id: str, override: str | None) -> str:
     """Map an NCT id to a documents/<doi> folder via tdr.parquet, or use override."""
     api, token = _hf()
@@ -160,8 +173,37 @@ def _list_doc_folders(api) -> list[str]:
     return sorted({f.split("/")[1] for f in files if f.startswith("documents/") and "/" in f[len("documents/") :]})
 
 
+def _sap_text_from_lines(data: dict) -> str:
+    """Reconstruct SAP text with page markers from a parsed sap.lines.json dict."""
+    chunks = []
+    for page in data.get("pages", []):
+        pageno = page.get("page", "?")
+        chunks.append(f"\n===== Page {pageno} =====")
+        for line in page.get("lines", []):
+            txt = (line.get("text") or "").strip()
+            if txt:
+                chunks.append(txt)
+    return "\n".join(chunks).strip()
+
+
+def load_sap_from_file(path: str) -> str:
+    """Load SAP from a local file: .json -> reconstruct with page markers,
+    anything else -> read as plain text."""
+    p = Path(path)
+    if not p.exists():
+        sys.exit(f"--sap-file not found: {path}")
+    if p.suffix.lower() == ".json":
+        data = json.loads(p.read_text(encoding="utf-8"))
+        text = _sap_text_from_lines(data)
+    else:
+        text = p.read_text(encoding="utf-8").strip()
+    if not text:
+        sys.exit(f"SAP file {path} produced empty text.")
+    return text
+
+
 def load_sap_text(doc_id: str) -> str:
-    """Reconstruct SAP text with page markers from documents/<doc>/sap.lines.json."""
+    """Reconstruct SAP text with page markers from documents/<doc>/sap.lines.json (HF)."""
     api, token = _hf()
     from huggingface_hub import hf_hub_download
 
@@ -174,16 +216,7 @@ def load_sap_text(doc_id: str) -> str:
         sys.exit(f"Could not download {fname} from {SOURCE_REPO}: {e}")
     with open(path, encoding="utf-8") as fh:
         data = json.load(fh)
-
-    chunks = []
-    for page in data.get("pages", []):
-        pageno = page.get("page", "?")
-        chunks.append(f"\n===== Page {pageno} =====")
-        for line in page.get("lines", []):
-            txt = (line.get("text") or "").strip()
-            if txt:
-                chunks.append(txt)
-    text = "\n".join(chunks).strip()
+    text = _sap_text_from_lines(data)
     if not text:
         sys.exit(f"SAP text for {doc_id} was empty.")
     return text
@@ -310,9 +343,13 @@ def extract_blocks(text: str) -> tuple[dict | None, str, str | None]:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--submission", default="NCT02578680__EricZ",
-                    help="submission folder name <trial>__<user>")
+                    help="submission folder name <trial>__<user> (read from HF)")
+    ap.add_argument("--submission-file", default=None,
+                    help="local submission JSON path (skips HF; no HF_TOKEN needed)")
     ap.add_argument("--doc-id", default=None,
                     help="documents/<doc-id> folder (default: resolve from NCT via tdr.parquet)")
+    ap.add_argument("--sap-file", default=None,
+                    help="local SAP file (.json sap.lines -> page markers, else plain text; skips HF)")
     ap.add_argument("--models", nargs="+", default=DEFAULT_MODELS,
                     help=f"model ids to run (default: {DEFAULT_MODELS})")
     ap.add_argument("--out", default="out", help="output directory")
@@ -323,9 +360,17 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"Submission: {args.submission}  (NCT {nct_id})")
-    submission = load_submission(args.submission)
-    doc_id = resolve_doc_id(nct_id, args.doc_id)
-    sap_text = load_sap_text(doc_id)
+    # --- submission: local file or HF ---
+    if args.submission_file:
+        submission = load_submission_from_file(args.submission_file)
+    else:
+        submission = load_submission(args.submission)
+    # --- SAP: local file or HF ---
+    if args.sap_file:
+        sap_text = load_sap_from_file(args.sap_file)
+    else:
+        doc_id = resolve_doc_id(nct_id, args.doc_id)
+        sap_text = load_sap_text(doc_id)
     print(f"  SAP chars: {len(sap_text):,}")
 
     prompt_block = build_prompt_block(submission)

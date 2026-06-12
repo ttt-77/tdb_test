@@ -4,16 +4,38 @@ Standalone script that runs one or more LLMs over an intake submission's
 questions, using the trial's parsed SAP as the only source, and writes the
 completed `output.json` (+ `output.R`) per model to local files.
 
+The script only **reads** from HF and **writes outputs locally** — it never
+uploads anything to Hugging Face. You can also run it **fully local** (local
+input files, no HF access, no `HF_TOKEN`).
+
 ## Setup
 
 ```bash
 pip install -r requirements.txt
-export HF_TOKEN=hf_...            # read access to the private intake_form_data repo
 export ANTHROPIC_API_KEY=...      # for claude-* models
 export OPENAI_API_KEY=...         # for gpt-* models
+# only if you read inputs from HF (not needed for fully-local mode):
+export HF_TOKEN=hf_...            # read access to the private intake_form_data repo
 ```
 
-## Run
+## Run — fully local (no HF)
+
+Point it at a local submission JSON and a local SAP file:
+
+```bash
+python run_llm.py \
+    --submission NCT02578680__EricZ \
+    --submission-file ./sub.json \
+    --sap-file ./sap.lines.json \
+    --models claude-opus-4-8 gpt-4o
+```
+
+- `--submission-file` — a submission record, or a bare `{trial_id, username, prompts}`.
+- `--sap-file` — a `sap.lines.json` (rebuilt with page markers) **or** any
+  `.txt`/`.md` (used as-is).
+- `--submission` is still used only to name the output folder.
+
+## Run — reading inputs from HF
 
 ```bash
 python run_llm.py --submission NCT02578680__EricZ
