@@ -29,7 +29,6 @@ IMPORTANCE_OPTIONS: List[str] = ["High", "Medium", "Low"]
 class Criterion(TypedDict):
     criterion: str
     importance: str
-    tolerance: str
 
 
 class Rubric(TypedDict):
@@ -106,7 +105,6 @@ def question_content_hash(q: dict) -> str:
                     {
                         "criterion": c.get("criterion", ""),
                         "importance": c.get("importance", ""),
-                        "tolerance": c.get("tolerance", ""),
                     }
                     for c in (r.get("criteria") or [])
                 ],

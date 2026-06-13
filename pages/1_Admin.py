@@ -109,13 +109,11 @@ def render_questions(
                             {
                                 "criterion": r.get("criterion", ""),
                                 "importance": r.get("points", ""),
-                                "tolerance": r.get("tolerance", ""),
                             }
                         ]
                     for ci, c in enumerate(criteria):
                         st.markdown(
-                            f"&nbsp;&nbsp;{ci + 1}. _importance:_ **{c.get('importance', '') or '—'}** "
-                            f"· _tolerance:_ {c.get('tolerance', '') or '—'}  \n"
+                            f"&nbsp;&nbsp;{ci + 1}. _importance:_ **{c.get('importance', '') or '—'}**  \n"
                             f"&nbsp;&nbsp;&nbsp;&nbsp;{c.get('criterion', '') or '_(no criterion)_'}"
                         )
 

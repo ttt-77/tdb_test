@@ -120,7 +120,7 @@ def _remove_question(idx: int) -> None:
 
 
 def _clear_criterion_keys(uid: int, j: int, cid: int) -> None:
-    for f in ("criterion", "importance", "tolerance"):
+    for f in ("criterion", "importance"):
         st.session_state.pop(kc(uid, j, cid, f), None)
 
 
@@ -188,7 +188,6 @@ def _build_prompts() -> list:
                         "importance": st.session_state.get(
                             kc(uid, j, cid, "importance"), DEFAULT_IMPORTANCE
                         ),
-                        "tolerance": st.session_state.get(kc(uid, j, cid, "tolerance"), ""),
                     }
                 )
             rubrics.append(
@@ -272,14 +271,13 @@ def _load_selected() -> None:
         rubrics = []
         for j, r in enumerate(qp.get("rubrics") or []):
             # New format has r["criteria"]; old format had a single
-            # points/criterion/tolerance on the rubric itself.
+            # points/criterion on the rubric itself.
             saved_crits = r.get("criteria")
             if saved_crits is None:
                 saved_crits = [
                     {
                         "criterion": r.get("criterion", ""),
-                        "importance": IMPORTANCE_OPTIONS[0],
-                        "tolerance": r.get("tolerance", ""),
+                        "importance": DEFAULT_IMPORTANCE,
                     }
                 ]
             cids = []
@@ -293,7 +291,6 @@ def _load_selected() -> None:
                     DEFAULT_IMPORTANCE,
                 )
                 st.session_state[kc(uid, j, cid, "importance")] = match
-                st.session_state[kc(uid, j, cid, "tolerance")] = c.get("tolerance", "")
             rubrics.append(
                 {"artifact": r.get("artifact", ""), "dimension": r.get("dimension", ""), "criteria": cids}
             )
@@ -468,7 +465,7 @@ def _questions_fragment() -> None:
                                 key=kc(uid, j, cid, "criterion"),
                                 height=70,
                             )
-                            cc1, cc2, cc3 = st.columns([2, 2, 1])
+                            cc1, cc2 = st.columns([3, 1])
                             with cc1:
                                 st.selectbox(
                                     "Importance",
@@ -476,8 +473,6 @@ def _questions_fragment() -> None:
                                     key=kc(uid, j, cid, "importance"),
                                 )
                             with cc2:
-                                st.text_input("Tolerance", key=kc(uid, j, cid, "tolerance"))
-                            with cc3:
                                 st.write("")
                                 st.write("")
                                 st.button(
