@@ -48,6 +48,7 @@ if fragment is None:
         return func
 
 _STATUS_EMOJI = {"pending": "🟡", "reviewed": "🟢", "needs_fix": "🔴"}
+DEFAULT_IMPORTANCE = "Medium"
 
 
 # ------------- widget-key helpers ----------------------------------------
@@ -136,14 +137,15 @@ def _on_type_change(uid: int) -> None:
     # New dimension blocks (artifact + dimension fixed by type), each seeded
     # with its default number of criterion rows (e.g. Method shows 3).
     new_rubrics = []
-    for dim in dimensions_for_type(qt):
+    for j, dim in enumerate(dimensions_for_type(qt)):
         n = max(1, int(dim.get("default_criteria", 1)))
+        cids = []
+        for _ in range(n):
+            cid = _next_cid()
+            st.session_state[kc(uid, j, cid, "importance")] = DEFAULT_IMPORTANCE
+            cids.append(cid)
         new_rubrics.append(
-            {
-                "artifact": dim["artifact"],
-                "dimension": dim["dimension"],
-                "criteria": [_next_cid() for _ in range(n)],
-            }
+            {"artifact": dim["artifact"], "dimension": dim["dimension"], "criteria": cids}
         )
     q["rubrics"] = new_rubrics
 
@@ -152,7 +154,9 @@ def _add_criterion(uid: int, j: int) -> None:
     q = next((x for x in st.session_state.questions if x["_uid"] == uid), None)
     if q is None or j >= len(q["rubrics"]):
         return
-    q["rubrics"][j]["criteria"].append(_next_cid())
+    cid = _next_cid()
+    st.session_state[kc(uid, j, cid, "importance")] = DEFAULT_IMPORTANCE
+    q["rubrics"][j]["criteria"].append(cid)
 
 
 def _remove_criterion(uid: int, j: int, cid: int) -> None:
@@ -182,7 +186,7 @@ def _build_prompts() -> list:
                     {
                         "criterion": text,
                         "importance": st.session_state.get(
-                            kc(uid, j, cid, "importance"), IMPORTANCE_OPTIONS[0]
+                            kc(uid, j, cid, "importance"), DEFAULT_IMPORTANCE
                         ),
                         "tolerance": st.session_state.get(kc(uid, j, cid, "tolerance"), ""),
                     }
@@ -286,7 +290,7 @@ def _load_selected() -> None:
                 imp = str(c.get("importance", "")).strip()
                 match = next(
                     (o for o in IMPORTANCE_OPTIONS if o.lower() == imp.lower()),
-                    IMPORTANCE_OPTIONS[0],
+                    DEFAULT_IMPORTANCE,
                 )
                 st.session_state[kc(uid, j, cid, "importance")] = match
                 st.session_state[kc(uid, j, cid, "tolerance")] = c.get("tolerance", "")
