@@ -36,7 +36,7 @@ from lib.storage import (
     save_submission,
 )
 
-st.set_page_config(page_title="TDB Intake", page_icon="🔬", layout="wide")
+st.set_page_config(page_title="TDB Intake", page_icon="🔬", layout="centered")
 
 SOURCE_REPO = "trialdesignbench/source"
 
@@ -547,6 +547,9 @@ def render_form() -> None:
         help="List all previously submitted versions for this trial_id + username.",
     )
 
+    # Reference document PDF links (directly under Find versions).
+    render_pdf_panel()
+
     versions = st.session_state.versions
     if versions:
         options = [v["submissionId"] for v in versions]
@@ -601,8 +604,4 @@ if not hf_configured:
         "(local dev mode)."
     )
 
-col_pdf, col_form = st.columns([5, 7], gap="large")
-with col_pdf:
-    render_pdf_panel()
-with col_form:
-    render_form()
+render_form()
