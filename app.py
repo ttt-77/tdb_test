@@ -213,7 +213,7 @@ def _save_draft() -> None:
 
 
 def _find_versions() -> None:
-    trial_id = st.session_state.trial_id.strip()
+    trial_id = st.session_state.trial_id.strip().lower()  # DOI is case-insensitive
     username = st.session_state.username.strip()
     if not trial_id or not username:
         st.session_state.versions = []
@@ -306,7 +306,7 @@ def _load_selected() -> None:
 
 
 def _submit() -> None:
-    trial_id = st.session_state.trial_id.strip()
+    trial_id = st.session_state.trial_id.strip().lower()  # DOI is case-insensitive
     username = st.session_state.username.strip()
     if not trial_id or not username:
         st.session_state.last_result = {"kind": "error", "msg": "trial_id and username are required."}
@@ -365,7 +365,7 @@ def render_pdf_panel() -> None:
     by X-Frame-Options and re-sending bytes made the form laggy.
     """
     st.markdown("#### 📄 Reference document")
-    doc = st.session_state.get("trial_id", "").strip()
+    doc = st.session_state.get("trial_id", "").strip().lower()  # DOI is case-insensitive
     if not doc:
         st.caption(
             "Enter the DOI (e.g. `10.1200_jco.22.01989`) on the right "
