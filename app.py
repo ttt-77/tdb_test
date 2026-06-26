@@ -18,7 +18,9 @@ the one-rerun-lag ("type twice") bug that comes from mixing value= with key=.
 
 from __future__ import annotations
 
+import csv
 import json
+from pathlib import Path
 
 import streamlit as st
 
@@ -383,6 +385,67 @@ def render_pdf_panel() -> None:
     st.caption(f"Document: `{doc}`")
 
 
+# ------------- trial browser ---------------------------------------------
+
+TRIAL_COLS = [
+    "document_id",
+    "Journal",
+    "Year",
+    "Therapeutic Area",
+    "Phase",
+    "Paper Title",
+    "Paper Link",
+]
+
+
+@st.cache_data(show_spinner=False)
+def load_trials() -> list:
+    p = Path(__file__).parent / "assets" / "trials.csv"
+    try:
+        with open(p, encoding="utf-8") as fh:
+            return list(csv.DictReader(fh))
+    except Exception:
+        return []
+
+
+@fragment
+def render_trial_browser() -> None:
+    """Searchable table of trials (from tdr.parquet). Each column has its own
+    search box; copy a `document_id` into the DOI field to load that trial."""
+    trials = load_trials()
+    if not trials:
+        return
+    with st.expander(f"🔎 Browse trials ({len(trials)}) — search to find a DOI"):
+        queries = {}
+        r1 = st.columns(4)
+        for col, c in zip(TRIAL_COLS[:4], r1):
+            with c:
+                queries[col] = st.text_input(col, key=f"tsearch_{col}", placeholder="search…")
+        r2 = st.columns(3)
+        for col, c in zip(TRIAL_COLS[4:], r2):
+            with c:
+                queries[col] = st.text_input(col, key=f"tsearch_{col}", placeholder="search…")
+
+        def _match(row: dict) -> bool:
+            for col, q in queries.items():
+                q = (q or "").strip().lower()
+                if q and q not in str(row.get(col, "")).lower():
+                    return False
+            return True
+
+        filtered = [r for r in trials if _match(r)]
+        st.caption(f"{len(filtered)} match(es). Copy a `document_id` into the DOI field.")
+        st.dataframe(
+            filtered,
+            use_container_width=True,
+            hide_index=True,
+            height=360,
+            column_config={
+                "Paper Link": st.column_config.LinkColumn("Paper Link", display_text="link ↗"),
+            },
+        )
+
+
 # ------------- form ------------------------------------------------------
 
 @fragment
@@ -539,6 +602,8 @@ def render_form() -> None:
         )
     with c2:
         st.text_input("Username", key="username", placeholder="e.g., jdoe")
+
+    render_trial_browser()
 
     st.button(
         "Find versions",

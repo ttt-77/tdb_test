@@ -15,11 +15,15 @@ A Streamlit intake form for trial statisticians. Submissions are saved to a **Hu
 
 ## What it does
 
-- **Reference PDF panel** — a wide two-column layout shows, on the left,
-  open-in-new-tab links to the document's `sap.pdf` / `protocol.pdf` in the
-  public `trialdesignbench/source` dataset. The entered `trial_id` is used
-  directly as the document id (e.g. `10.1200_jco.22.01989`), so there's no
-  ambiguous NCT→document mapping.
+- **Trial browser** — a searchable table (`🔎 Browse trials`) of all trials,
+  built from `tdr.parquet` and shipped as `assets/trials.csv` (columns:
+  document_id, Journal, Year, Therapeutic Area, Phase, Paper Title, Paper Link).
+  Each column has its own search box; copy a `document_id` into the DOI field to
+  pick a trial. Regenerate the CSV from the source dataset when it changes.
+- **Reference PDF links** — open-in-new-tab links to the document's `sap.pdf` /
+  `protocol.pdf` in the public `trialdesignbench/source` dataset. The entered
+  DOI is used directly as the document id (e.g. `10.1200_jco.22.01989`), so
+  there's no ambiguous NCT→document mapping.
 - **Form (`app.py`)** — statisticians enter `trial_id`, `username`, and a list of questions. Each question has:
   - `design_element` (dropdown — when "Others" is picked, a free-text input appears)
   - `question_type` (dropdown — `extraction_only` / `derivation_required`)
