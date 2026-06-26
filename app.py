@@ -394,7 +394,6 @@ TRIAL_COLS = [
     "Therapeutic Area",
     "Phase",
     "Paper Title",
-    "Paper Link",
 ]
 
 
@@ -417,12 +416,12 @@ def render_trial_browser() -> None:
         return
     with st.expander(f"🔎 Browse trials ({len(trials)}) — search to find a DOI"):
         queries = {}
-        r1 = st.columns(4)
-        for col, c in zip(TRIAL_COLS[:4], r1):
+        r1 = st.columns(3)
+        for col, c in zip(TRIAL_COLS[:3], r1):
             with c:
                 queries[col] = st.text_input(col, key=f"tsearch_{col}", placeholder="search…")
         r2 = st.columns(3)
-        for col, c in zip(TRIAL_COLS[4:], r2):
+        for col, c in zip(TRIAL_COLS[3:], r2):
             with c:
                 queries[col] = st.text_input(col, key=f"tsearch_{col}", placeholder="search…")
 
@@ -433,17 +432,9 @@ def render_trial_browser() -> None:
                     return False
             return True
 
-        filtered = [r for r in trials if _match(r)]
+        filtered = [{c: r.get(c, "") for c in TRIAL_COLS} for r in trials if _match(r)]
         st.caption(f"{len(filtered)} match(es). Copy a `DOI` into the DOI field above.")
-        st.dataframe(
-            filtered,
-            use_container_width=True,
-            hide_index=True,
-            height=360,
-            column_config={
-                "Paper Link": st.column_config.LinkColumn("Paper Link", display_text="link ↗"),
-            },
-        )
+        st.dataframe(filtered, use_container_width=True, hide_index=True, height=360)
 
 
 # ------------- form ------------------------------------------------------

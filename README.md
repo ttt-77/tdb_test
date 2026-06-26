@@ -17,7 +17,7 @@ A Streamlit intake form for trial statisticians. Submissions are saved to a **Hu
 
 - **Trial browser** — a searchable table (`🔎 Browse trials`) of all trials,
   built from `tdr.parquet` and shipped as `assets/trials.csv` (columns:
-  DOI, Journal, Year, Therapeutic Area, Phase, Paper Title, Paper Link).
+  DOI, Journal, Year, Therapeutic Area, Phase, Paper Title).
   Each column has its own search box; copy a `DOI` into the DOI field to
   pick a trial. Regenerate the CSV from the source dataset when it changes.
 - **Reference PDF links** — open-in-new-tab links to the document's `sap.pdf` /
