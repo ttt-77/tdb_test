@@ -388,7 +388,7 @@ def render_pdf_panel() -> None:
 # ------------- trial browser ---------------------------------------------
 
 TRIAL_COLS = [
-    "document_id",
+    "DOI",
     "Journal",
     "Year",
     "Therapeutic Area",
@@ -411,7 +411,7 @@ def load_trials() -> list:
 @fragment
 def render_trial_browser() -> None:
     """Searchable table of trials (from tdr.parquet). Each column has its own
-    search box; copy a `document_id` into the DOI field to load that trial."""
+    search box; copy a `DOI` into the DOI field to load that trial."""
     trials = load_trials()
     if not trials:
         return
@@ -434,7 +434,7 @@ def render_trial_browser() -> None:
             return True
 
         filtered = [r for r in trials if _match(r)]
-        st.caption(f"{len(filtered)} match(es). Copy a `document_id` into the DOI field.")
+        st.caption(f"{len(filtered)} match(es). Copy a `DOI` into the DOI field above.")
         st.dataframe(
             filtered,
             use_container_width=True,
