@@ -540,7 +540,7 @@ def _questions_fragment() -> None:
                                 )
                             with cc2:
                                 st.selectbox(
-                                    "Scoring",
+                                    "Scoring direction",
                                     options=SCORING_OPTIONS,
                                     key=kc(uid, j, cid, "scoring"),
                                     help="Add: meeting this criterion adds points. "
