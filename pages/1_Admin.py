@@ -113,7 +113,8 @@ def render_questions(
                         ]
                     for ci, c in enumerate(criteria):
                         st.markdown(
-                            f"&nbsp;&nbsp;{ci + 1}. _importance:_ **{c.get('importance', '') or '—'}**  \n"
+                            f"&nbsp;&nbsp;{ci + 1}. _importance:_ **{c.get('importance', '') or '—'}** "
+                            f"· _scoring:_ **{c.get('scoring', '') or '—'}**  \n"
                             f"&nbsp;&nbsp;&nbsp;&nbsp;{c.get('criterion', '') or '_(no criterion)_'}"
                         )
 

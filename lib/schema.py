@@ -25,10 +25,14 @@ VALID_STATUSES: List[str] = ["pending", "reviewed", "needs_fix"]
 # Each criterion's importance (replaces the old numeric "points").
 IMPORTANCE_OPTIONS: List[str] = ["High", "Medium", "Low"]
 
+# Whether meeting a criterion adds or deducts points.
+SCORING_OPTIONS: List[str] = ["Add", "Deduct"]
+
 
 class Criterion(TypedDict):
     criterion: str
     importance: str
+    scoring: str
 
 
 class Rubric(TypedDict):
@@ -105,6 +109,7 @@ def question_content_hash(q: dict) -> str:
                     {
                         "criterion": c.get("criterion", ""),
                         "importance": c.get("importance", ""),
+                        "scoring": c.get("scoring", ""),
                     }
                     for c in (r.get("criteria") or [])
                 ],

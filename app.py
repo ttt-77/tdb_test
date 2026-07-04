@@ -28,6 +28,7 @@ from lib.schema import (
     DESIGN_ELEMENTS,
     IMPORTANCE_OPTIONS,
     QUESTION_TYPES,
+    SCORING_OPTIONS,
     dimensions_for_type,
 )
 from lib.storage import (
@@ -51,6 +52,7 @@ if fragment is None:
 
 _STATUS_EMOJI = {"pending": "🟡", "reviewed": "🟢", "needs_fix": "🔴"}
 DEFAULT_IMPORTANCE = "Medium"
+DEFAULT_SCORING = "Add"
 
 
 # ------------- widget-key helpers ----------------------------------------
@@ -122,7 +124,7 @@ def _remove_question(idx: int) -> None:
 
 
 def _clear_criterion_keys(uid: int, j: int, cid: int) -> None:
-    for f in ("criterion", "importance"):
+    for f in ("criterion", "importance", "scoring"):
         st.session_state.pop(kc(uid, j, cid, f), None)
 
 
@@ -145,6 +147,7 @@ def _on_type_change(uid: int) -> None:
         for _ in range(n):
             cid = _next_cid()
             st.session_state[kc(uid, j, cid, "importance")] = DEFAULT_IMPORTANCE
+            st.session_state[kc(uid, j, cid, "scoring")] = DEFAULT_SCORING
             cids.append(cid)
         new_rubrics.append(
             {"artifact": dim["artifact"], "dimension": dim["dimension"], "criteria": cids}
@@ -158,6 +161,7 @@ def _add_criterion(uid: int, j: int) -> None:
         return
     cid = _next_cid()
     st.session_state[kc(uid, j, cid, "importance")] = DEFAULT_IMPORTANCE
+    st.session_state[kc(uid, j, cid, "scoring")] = DEFAULT_SCORING
     q["rubrics"][j]["criteria"].append(cid)
 
 
@@ -189,6 +193,9 @@ def _build_prompts() -> list:
                         "criterion": text,
                         "importance": st.session_state.get(
                             kc(uid, j, cid, "importance"), DEFAULT_IMPORTANCE
+                        ),
+                        "scoring": st.session_state.get(
+                            kc(uid, j, cid, "scoring"), DEFAULT_SCORING
                         ),
                     }
                 )
@@ -293,6 +300,11 @@ def _load_selected() -> None:
                     DEFAULT_IMPORTANCE,
                 )
                 st.session_state[kc(uid, j, cid, "importance")] = match
+                sco = str(c.get("scoring", "")).strip()
+                st.session_state[kc(uid, j, cid, "scoring")] = next(
+                    (o for o in SCORING_OPTIONS if o.lower() == sco.lower()),
+                    DEFAULT_SCORING,
+                )
             rubrics.append(
                 {"artifact": r.get("artifact", ""), "dimension": r.get("dimension", ""), "criteria": cids}
             )
@@ -519,7 +531,7 @@ def _questions_fragment() -> None:
                                 key=kc(uid, j, cid, "criterion"),
                                 height=70,
                             )
-                            cc1, cc2 = st.columns([3, 1])
+                            cc1, cc2, cc3 = st.columns([2, 2, 1])
                             with cc1:
                                 st.selectbox(
                                     "Importance",
@@ -527,6 +539,14 @@ def _questions_fragment() -> None:
                                     key=kc(uid, j, cid, "importance"),
                                 )
                             with cc2:
+                                st.selectbox(
+                                    "Scoring",
+                                    options=SCORING_OPTIONS,
+                                    key=kc(uid, j, cid, "scoring"),
+                                    help="Add: meeting this criterion adds points. "
+                                    "Deduct: it deducts points.",
+                                )
+                            with cc3:
                                 st.write("")
                                 st.write("")
                                 st.button(
