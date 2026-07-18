@@ -475,27 +475,40 @@ def render_trial_browser() -> None:
     trials = load_trials()
     if not trials:
         return
-    with st.expander(f"🔎 Browse trials ({len(trials)}) — search to find a DOI"):
-        queries = {}
-        r1 = st.columns(3)
-        for col, c in zip(TRIAL_COLS[:3], r1):
-            with c:
-                queries[col] = st.text_input(col, key=f"tsearch_{col}", placeholder="search…")
-        r2 = st.columns(3)
-        for col, c in zip(TRIAL_COLS[3:], r2):
-            with c:
-                queries[col] = st.text_input(col, key=f"tsearch_{col}", placeholder="search…")
+    # Gate the (heavy) table behind a toggle so it renders ONLY when turned on.
+    # An expander would render its contents on every rerun even while collapsed.
+    if not st.toggle(f"🔎 Browse trials ({len(trials)}) — search to find a DOI",
+                     key="show_trial_browser"):
+        return
 
-        def _match(row: dict) -> bool:
-            for col, q in queries.items():
-                q = (q or "").strip().lower()
-                if q and q not in str(row.get(col, "")).lower():
-                    return False
-            return True
+    queries = {}
+    r1 = st.columns(3)
+    for col, c in zip(TRIAL_COLS[:3], r1):
+        with c:
+            queries[col] = st.text_input(col, key=f"tsearch_{col}", placeholder="search…")
+    r2 = st.columns(3)
+    for col, c in zip(TRIAL_COLS[3:], r2):
+        with c:
+            queries[col] = st.text_input(col, key=f"tsearch_{col}", placeholder="search…")
 
-        filtered = [{c: r.get(c, "") for c in TRIAL_COLS} for r in trials if _match(r)]
+    def _match(row: dict) -> bool:
+        for col, q in queries.items():
+            q = (q or "").strip().lower()
+            if q and q not in str(row.get(col, "")).lower():
+                return False
+        return True
+
+    MAX_ROWS = 100
+    filtered = [{c: r.get(c, "") for c in TRIAL_COLS} for r in trials if _match(r)]
+    shown = filtered[:MAX_ROWS]
+    if len(filtered) > MAX_ROWS:
+        st.caption(
+            f"{len(filtered)} match(es); showing first {MAX_ROWS}. "
+            "Refine the search to narrow. Copy a `DOI` into the DOI field above."
+        )
+    else:
         st.caption(f"{len(filtered)} match(es). Copy a `DOI` into the DOI field above.")
-        st.dataframe(filtered, use_container_width=True, hide_index=True, height=360)
+    st.dataframe(shown, use_container_width=True, hide_index=True, height=360)
 
 
 # ------------- form ------------------------------------------------------
