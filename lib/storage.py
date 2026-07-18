@@ -184,36 +184,44 @@ def save_submission(trial_id: str, username: str, comparison: Dict[str, Any]) ->
     return {"submissionId": submission_id, "url": url, "record": record, "version": version}
 
 
-def draft_path(trial_id: str, username: str) -> str:
-    """A single draft lives in a drafts/ subfolder of the submission folder."""
-    return f"{_pair_dir(trial_id, username)}/drafts/draft.json"
+def _drafts_dir(trial_id: str, username: str) -> str:
+    return f"{_pair_dir(trial_id, username)}/drafts"
 
 
 def save_draft(trial_id: str, username: str, comparison: Dict[str, Any]) -> Dict[str, Any]:
-    """Save (overwrite) the current draft for (trial_id, username) under
-    submissions/<trial>__<user>/drafts/draft.json. Not a version; excluded from
-    version listings."""
+    """Save a timestamped draft for (trial_id, username) under
+    submissions/<trial>__<user>/drafts/<stamp>.json. Each save keeps history;
+    drafts are not versions and are excluded from version listings."""
     now = _now_iso()
-    path = draft_path(trial_id, username)
+    stamp = _stamp(now)
+    path = f"{_drafts_dir(trial_id, username)}/{stamp}.json"
     record = {
         "savedAt": now,
+        "version": stamp,
         "trial_id": trial_id,
         "username": username,
         "comparison": comparison,
     }
-    _write_json(path, record, f"Save draft: {trial_id} — {username}")
+    _write_json(path, record, f"Save draft: {trial_id} — {username} ({stamp})")
     url = (
         f"https://huggingface.co/datasets/{HF_DATASET_REPO}"
         f"/blob/{HF_DATASET_BRANCH}/{path}"
         if hf_configured
         else None
     )
-    return {"path": path, "url": url, "savedAt": now}
+    return {"path": path, "url": url, "savedAt": now, "version": stamp}
 
 
-def get_draft(trial_id: str, username: str) -> Optional[Dict[str, Any]]:
-    """Load the saved draft for (trial_id, username), or None."""
-    return _read_json(draft_path(trial_id, username))
+def get_draft(
+    trial_id: str, username: str, all_files: Optional[List[str]] = None
+) -> Optional[Dict[str, Any]]:
+    """Load the most recent draft for (trial_id, username), or None."""
+    prefix = f"{_drafts_dir(trial_id, username)}/"
+    files = all_files if all_files is not None else _all_files()
+    paths = sorted(f for f in files if f.startswith(prefix) and f.endswith(".json"))
+    if not paths:
+        return None
+    return _read_json(paths[-1])  # max stamp = latest draft
 
 
 def list_versions(

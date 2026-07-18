@@ -233,8 +233,8 @@ def _save_draft() -> None:
         result = save_draft(trial_id, username, comparison)
         st.session_state.last_result = {
             "kind": "success",
-            "msg": f"Draft saved. Come back with the same DOI + username and click "
-            f"“Load draft”. (`{result['path']}`)",
+            "msg": f"Draft saved as `{result['version']}`. Come back with the same "
+            f"DOI + username and click “Load draft” to restore the latest draft.",
             "url": result.get("url"),
         }
     except Exception as e:
@@ -363,8 +363,8 @@ def _load_draft() -> None:
     _populate_form(prompts)
     st.session_state.last_result = {
         "kind": "success",
-        "msg": f"Loaded draft saved {record.get('savedAt', '')} "
-        f"({len(prompts)} question(s)).",
+        "msg": f"Loaded latest draft (saved {record.get('savedAt', '')}, "
+        f"{len(prompts)} question(s)).",
     }
 
 
