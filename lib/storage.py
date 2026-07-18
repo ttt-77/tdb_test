@@ -184,6 +184,38 @@ def save_submission(trial_id: str, username: str, comparison: Dict[str, Any]) ->
     return {"submissionId": submission_id, "url": url, "record": record, "version": version}
 
 
+def draft_path(trial_id: str, username: str) -> str:
+    """A single draft lives in a drafts/ subfolder of the submission folder."""
+    return f"{_pair_dir(trial_id, username)}/drafts/draft.json"
+
+
+def save_draft(trial_id: str, username: str, comparison: Dict[str, Any]) -> Dict[str, Any]:
+    """Save (overwrite) the current draft for (trial_id, username) under
+    submissions/<trial>__<user>/drafts/draft.json. Not a version; excluded from
+    version listings."""
+    now = _now_iso()
+    path = draft_path(trial_id, username)
+    record = {
+        "savedAt": now,
+        "trial_id": trial_id,
+        "username": username,
+        "comparison": comparison,
+    }
+    _write_json(path, record, f"Save draft: {trial_id} — {username}")
+    url = (
+        f"https://huggingface.co/datasets/{HF_DATASET_REPO}"
+        f"/blob/{HF_DATASET_BRANCH}/{path}"
+        if hf_configured
+        else None
+    )
+    return {"path": path, "url": url, "savedAt": now}
+
+
+def get_draft(trial_id: str, username: str) -> Optional[Dict[str, Any]]:
+    """Load the saved draft for (trial_id, username), or None."""
+    return _read_json(draft_path(trial_id, username))
+
+
 def list_versions(
     trial_id: str, username: str, all_files: Optional[List[str]] = None
 ) -> List[Dict[str, Any]]:
@@ -195,7 +227,11 @@ def list_versions(
     prefix = f"{_pair_dir(trial_id, username)}/"
     files = all_files if all_files is not None else _all_files()
     paths = sorted(
-        (f for f in files if f.startswith(prefix) and f.endswith(".json")),
+        (
+            f
+            for f in files
+            if f.startswith(prefix) and f.endswith(".json") and "/drafts/" not in f
+        ),
         reverse=True,
     )
     out: List[Dict[str, Any]] = []
@@ -340,7 +376,11 @@ def list_submissions() -> List[Dict[str, Any]]:
     """
     files = _all_files()
     sub_paths = [
-        f for f in files if f.startswith(f"{SUBMISSIONS_PREFIX}/") and f.endswith(".json")
+        f
+        for f in files
+        if f.startswith(f"{SUBMISSIONS_PREFIX}/")
+        and f.endswith(".json")
+        and "/drafts/" not in f
     ]
     # Keep only the newest version path per pair (stamps sort lexically).
     latest_by_pair: Dict[str, str] = {}

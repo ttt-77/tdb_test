@@ -32,10 +32,12 @@ from lib.schema import (
     dimensions_for_type,
 )
 from lib.storage import (
+    get_draft,
     get_submission,
     hf_configured,
     list_versions,
     pair_reviews,
+    save_draft,
     save_submission,
 )
 
@@ -218,7 +220,25 @@ def _build_prompts() -> list:
 
 
 def _save_draft() -> None:
-    st.session_state.last_result = {"kind": "draft", "msg": "Draft saved in this browser session."}
+    trial_id = st.session_state.trial_id.strip().lower()  # DOI is case-insensitive
+    username = st.session_state.username.strip()
+    if not trial_id or not username:
+        st.session_state.last_result = {
+            "kind": "error",
+            "msg": "DOI and username are required to save a draft.",
+        }
+        return
+    comparison = {"trial_id": trial_id, "username": username, "prompts": _build_prompts()}
+    try:
+        result = save_draft(trial_id, username, comparison)
+        st.session_state.last_result = {
+            "kind": "success",
+            "msg": f"Draft saved. Come back with the same DOI + username and click "
+            f"“Load draft”. (`{result['path']}`)",
+            "url": result.get("url"),
+        }
+    except Exception as e:
+        st.session_state.last_result = {"kind": "error", "msg": f"Save draft failed: {e}"}
 
 
 def _find_versions() -> None:
@@ -253,21 +273,8 @@ def _find_versions() -> None:
         }
 
 
-def _load_selected() -> None:
-    sub_id = st.session_state.get("version_select")
-    if not sub_id:
-        st.session_state.last_result = {"kind": "error", "msg": "Pick a version first."}
-        return
-    try:
-        record = get_submission(sub_id)
-    except Exception as e:
-        st.session_state.last_result = {"kind": "error", "msg": f"Load failed: {e}"}
-        return
-    if not record:
-        st.session_state.last_result = {"kind": "error", "msg": "That version could not be loaded."}
-        return
-    prompts = (record.get("comparison") or {}).get("prompts") or []
-
+def _populate_form(prompts: list) -> None:
+    """Rebuild the form's questions from a saved prompts list (version or draft)."""
     new_questions = []
     for qp in prompts:
         uid = _next_uid()
@@ -284,10 +291,7 @@ def _load_selected() -> None:
             saved_crits = r.get("criteria")
             if saved_crits is None:
                 saved_crits = [
-                    {
-                        "criterion": r.get("criterion", ""),
-                        "importance": DEFAULT_IMPORTANCE,
-                    }
+                    {"criterion": r.get("criterion", ""), "importance": DEFAULT_IMPORTANCE}
                 ]
             cids = []
             for c in saved_crits:
@@ -295,11 +299,10 @@ def _load_selected() -> None:
                 cids.append(cid)
                 st.session_state[kc(uid, j, cid, "criterion")] = c.get("criterion", "")
                 imp = str(c.get("importance", "")).strip()
-                match = next(
+                st.session_state[kc(uid, j, cid, "importance")] = next(
                     (o for o in IMPORTANCE_OPTIONS if o.lower() == imp.lower()),
                     DEFAULT_IMPORTANCE,
                 )
-                st.session_state[kc(uid, j, cid, "importance")] = match
                 sco = str(c.get("scoring", "")).strip()
                 st.session_state[kc(uid, j, cid, "scoring")] = next(
                     (o for o in SCORING_OPTIONS if o.lower() == sco.lower()),
@@ -311,11 +314,57 @@ def _load_selected() -> None:
         new_questions.append({"_uid": uid, "rubrics": rubrics})
 
     st.session_state.questions = new_questions
+
+
+def _load_selected() -> None:
+    sub_id = st.session_state.get("version_select")
+    if not sub_id:
+        st.session_state.last_result = {"kind": "error", "msg": "Pick a version first."}
+        return
+    try:
+        record = get_submission(sub_id)
+    except Exception as e:
+        st.session_state.last_result = {"kind": "error", "msg": f"Load failed: {e}"}
+        return
+    if not record:
+        st.session_state.last_result = {"kind": "error", "msg": "That version could not be loaded."}
+        return
+    prompts = (record.get("comparison") or {}).get("prompts") or []
+    _populate_form(prompts)
     st.session_state.loaded_version = record.get("version", "")
     st.session_state.last_result = {
         "kind": "success",
         "msg": f"Loaded version {record.get('version', '')} "
         f"({len(prompts)} question(s)). Edit and Submit to save a new version.",
+    }
+
+
+def _load_draft() -> None:
+    trial_id = st.session_state.trial_id.strip().lower()  # DOI is case-insensitive
+    username = st.session_state.username.strip()
+    if not trial_id or not username:
+        st.session_state.last_result = {
+            "kind": "error",
+            "msg": "Enter DOI and username, then click Load draft.",
+        }
+        return
+    try:
+        record = get_draft(trial_id, username)
+    except Exception as e:
+        st.session_state.last_result = {"kind": "error", "msg": f"Load draft failed: {e}"}
+        return
+    if not record:
+        st.session_state.last_result = {
+            "kind": "info",
+            "msg": f"No saved draft for `{trial_id}` / `{username}`.",
+        }
+        return
+    prompts = (record.get("comparison") or {}).get("prompts") or []
+    _populate_form(prompts)
+    st.session_state.last_result = {
+        "kind": "success",
+        "msg": f"Loaded draft saved {record.get('savedAt', '')} "
+        f"({len(prompts)} question(s)).",
     }
 
 
@@ -616,11 +665,21 @@ def render_form() -> None:
 
     render_trial_browser()
 
-    st.button(
-        "Find versions",
-        on_click=_find_versions,
-        help="List all previously submitted versions for this trial_id + username.",
-    )
+    fv1, fv2 = st.columns(2)
+    with fv1:
+        st.button(
+            "Find versions",
+            on_click=_find_versions,
+            use_container_width=True,
+            help="List all previously submitted versions for this DOI + username.",
+        )
+    with fv2:
+        st.button(
+            "Load draft",
+            on_click=_load_draft,
+            use_container_width=True,
+            help="Load the saved draft for this DOI + username.",
+        )
 
     # Reference document PDF links (directly under Find versions).
     render_pdf_panel()
