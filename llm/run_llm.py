@@ -45,40 +45,17 @@ import re
 import sys
 from pathlib import Path
 
-# ---------------------------------------------------------------------------
-# The task prompt (verbatim). Used as the system prompt.
-# ---------------------------------------------------------------------------
-SYSTEM_PROMPT = "\n".join(
-    [
-        "You are an experienced trial statistician. You will be provided with the Statistical Analysis Plan (SAP) or protocol from a Phase 3 registrational trial. Your task is to reproduce the statistical design by answering the evaluation questions below.",
-        "",
-        "There are two types of evaluation questions:",
-        "",
-        "- Extraction only: locate and report the parameter value directly from the SAP/protocol.",
-        "- Derivation required: identify the source inputs from the SAP/protocol, calculate the requested parameter, explain the calculation method, and provide reproducible R code in output.R that implements the calculation and prints the final result.",
-        "",
-        "Closed-book constraint: use only the input document provided below. Do not draw on prior knowledge of this trial from any external source, including published papers, press releases, registry entries, amendments, or training data. If a value is absent or not derivable from the input document, state this explicitly.",
-        "",
-        "Every reported value must be traceable to a specific section and page of the input document, or to a calculation whose inputs are themselves traceable to a specific section and page.",
-        "",
-        "Every numeric value reported must be expressed to at least 4 decimal places unless otherwise specified.",
-        "",
-        "Do not assume any specific statistical method unless it is explicitly stated or directly derivable from the input document. If multiple methods are plausible, state the assumption made and justify it based on the input document.",
-        "",
-        "Output instructions:",
-        "- Return a file named output.json containing a single block named 'output'. Copy the entire prompt block into 'output' and replace each null value with the extracted or derived result. Do not add, remove, rename, or modify any other fields.",
-        "- Return a separate file named output.R implementing the calculations for all Derivation required questions. For each question the script must print: (1) the source inputs, (2) the calculation method and formula applied, and (3) the final calculated value.",
-    ]
-)
-
-# How the harness asks the model to package its two files in one response.
-RESPONSE_FORMAT_INSTRUCTION = (
-    "Return your answer as exactly two fenced code blocks, in this order:\n"
-    "1. A ```json block containing the completed output.json "
-    "(an object with a single top-level key \"output\").\n"
-    "2. A ```r block containing output.R. If there are no Derivation required "
-    "questions, return an empty ```r block.\n"
-    "Do not include any prose outside the two code blocks."
+# The prompt and model-calling logic live in lib/agent.py so this script and the
+# Streamlit "Run agent" page always use exactly the same prompt.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from lib.agent import (  # noqa: E402
+    RESPONSE_FORMAT_INSTRUCTION,  # noqa: F401  (re-exported for reference)
+    SYSTEM_PROMPT,  # noqa: F401
+    build_prompt_block,
+    build_user_message,
+    call_model,
+    extract_blocks,
+    sap_text_from_lines,
 )
 
 INTAKE_REPO = "trialdesignbench/intake_form_data"
@@ -206,19 +183,6 @@ def _list_doc_folders(api) -> list[str]:
     return sorted({f.split("/")[1] for f in files if f.startswith("documents/") and "/" in f[len("documents/") :]})
 
 
-def _sap_text_from_lines(data: dict) -> str:
-    """Reconstruct SAP text with page markers from a parsed sap.lines.json dict."""
-    chunks = []
-    for page in data.get("pages", []):
-        pageno = page.get("page", "?")
-        chunks.append(f"\n===== Page {pageno} =====")
-        for line in page.get("lines", []):
-            txt = (line.get("text") or "").strip()
-            if txt:
-                chunks.append(txt)
-    return "\n".join(chunks).strip()
-
-
 def load_sap_from_file(path: str) -> str:
     """Load SAP from a local file: .json -> reconstruct with page markers,
     anything else -> read as plain text."""
@@ -227,7 +191,7 @@ def load_sap_from_file(path: str) -> str:
         sys.exit(f"--sap-file not found: {path}")
     if p.suffix.lower() == ".json":
         data = json.loads(p.read_text(encoding="utf-8"))
-        text = _sap_text_from_lines(data)
+        text = sap_text_from_lines(data)
     else:
         text = p.read_text(encoding="utf-8").strip()
     if not text:
@@ -249,124 +213,10 @@ def load_sap_text(doc_id: str) -> str:
         sys.exit(f"Could not download {fname} from {SOURCE_REPO}: {e}")
     with open(path, encoding="utf-8") as fh:
         data = json.load(fh)
-    text = _sap_text_from_lines(data)
+    text = sap_text_from_lines(data)
     if not text:
         sys.exit(f"SAP text for {doc_id} was empty.")
     return text
-
-
-# ---------------------------------------------------------------------------
-# Build the prompt block (questions with null placeholders)
-# ---------------------------------------------------------------------------
-
-def build_prompt_block(submission: dict) -> dict:
-    prompts = (submission.get("comparison") or {}).get("prompts") or []
-    block = []
-    for q in prompts:
-        de = q.get("design_element", "")
-        if de == "Others" and q.get("design_element_other"):
-            de = q["design_element_other"]
-        qtype = q.get("question_type", "")
-        if qtype == "derivation_required":
-            output = {"dimensions": {"inputs_used": None, "method": None, "calculated_value": None}}
-        else:  # extraction_only (default)
-            output = {"extracted_value": None}
-        block.append(
-            {
-                "id": q.get("id", ""),
-                "design_element": de,
-                "question": q.get("question", ""),
-                "question_type": qtype,
-                "output": output,
-            }
-        )
-    return {"prompt": block}
-
-
-def build_user_message(sap_text: str, prompt_block: dict) -> str:
-    return (
-        "INPUT DOCUMENT (SAP / protocol):\n"
-        "<<<BEGIN DOCUMENT>>>\n"
-        f"{sap_text}\n"
-        "<<<END DOCUMENT>>>\n\n"
-        "PROMPT BLOCK — copy this whole block into 'output' and replace each null:\n"
-        "```json\n"
-        f"{json.dumps(prompt_block, indent=2, ensure_ascii=False)}\n"
-        "```\n\n"
-        f"{RESPONSE_FORMAT_INSTRUCTION}"
-    )
-
-
-# ---------------------------------------------------------------------------
-# Model callers — return raw response text
-# ---------------------------------------------------------------------------
-
-def call_anthropic(model: str, sap_text: str, user_msg: str) -> str:
-    from anthropic import Anthropic
-
-    client = Anthropic()  # reads ANTHROPIC_API_KEY
-    # Cache the large SAP-bearing user block so re-runs are cheaper.
-    resp = client.messages.create(
-        model=model,
-        max_tokens=8192,
-        system=[{"type": "text", "text": SYSTEM_PROMPT}],
-        messages=[
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "text",
-                        "text": user_msg,
-                        "cache_control": {"type": "ephemeral"},
-                    }
-                ],
-            }
-        ],
-    )
-    return "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
-
-
-def call_openai(model: str, sap_text: str, user_msg: str) -> str:
-    from openai import OpenAI
-
-    client = OpenAI()  # reads OPENAI_API_KEY
-    resp = client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_msg},
-        ],
-    )
-    return resp.choices[0].message.content or ""
-
-
-def call_model(model: str, sap_text: str, user_msg: str) -> str:
-    if model.startswith(("claude", "anthropic")):
-        return call_anthropic(model, sap_text, user_msg)
-    if model.startswith(("gpt", "o1", "o3", "openai")):
-        return call_openai(model, sap_text, user_msg)
-    raise ValueError(f"Unknown model '{model}' — prefix with claude-/gpt-/o1-...")
-
-
-# ---------------------------------------------------------------------------
-# Parse the two fenced blocks out of a response
-# ---------------------------------------------------------------------------
-
-def extract_blocks(text: str) -> tuple[dict | None, str, str | None]:
-    """Return (parsed_output_json, output_r, json_parse_error)."""
-    json_match = re.search(r"```json\s*(.+?)```", text, re.DOTALL | re.IGNORECASE)
-    r_match = re.search(r"```r\s*(.+?)```", text, re.DOTALL | re.IGNORECASE)
-    output_json, err = None, None
-    if json_match:
-        raw = json_match.group(1).strip()
-        try:
-            output_json = json.loads(raw)
-        except Exception as e:
-            err = f"{e}"
-    else:
-        err = "no ```json block found"
-    output_r = r_match.group(1).strip() if r_match else ""
-    return output_json, output_r, err
 
 
 # ---------------------------------------------------------------------------
@@ -428,7 +278,7 @@ def main() -> None:
         mdir.mkdir(parents=True, exist_ok=True)
         print(f"\n>>> {model}")
         try:
-            raw = call_model(model, sap_text, user_msg)
+            raw = call_model(model, user_msg)
         except Exception as e:
             print(f"    FAILED: {e}")
             (mdir / "error.txt").write_text(str(e), encoding="utf-8")

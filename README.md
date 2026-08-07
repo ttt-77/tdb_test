@@ -34,6 +34,15 @@ A Streamlit intake form for trial statisticians. Submissions are saved to a **Hu
   - Under each dimension you can add **multiple criteria**; each criterion has its own `criterion` text, `importance` (HIGH / medium / low), and `tolerance`.
   - **Versions** — every Submit saves a new version. Re-enter the same `trial_id` + `username`, click **Find versions**, pick one, and **Load selected version** to pull it back into the form for editing; Submit then saves a new version.
   - **Draft** — **Save draft** persists the current form (not a version) as a timestamped file `submissions/<DOI>__<username>/drafts/<stamp>.json`; each save keeps history. Re-enter the same DOI + username and click **Load draft** to restore the latest draft. Drafts are excluded from version listings and the admin console.
+- **Run agent page (`pages/2_Run_Agent.py`)** — pick a submitted version, choose
+  one or more models (`claude-*` → Anthropic, `gpt-*`/`o*-*` → OpenAI), and run
+  the trial-statistician prompt against the trial's SAP (or protocol) text. Each
+  user supplies **their own API key** on the page — nothing is stored
+  server-side, so runs never spend the Space owner's credits. Results are shown
+  per question and saved to
+  `submissions/<DOI>__<username>/agent_runs/<stamp>__<model>.json`; past runs are
+  browsable. Agent runs are excluded from version listings and the admin console.
+  The prompt and model calls live in `lib/agent.py`, shared with `llm/run_llm.py`.
 - **Admin page (`pages/1_Admin.py`)** — password-gated review console. Shows **only the latest version of each trial** (one row per `trial_id` + `username`). The questionnaire is rendered in the same layout as the form (read-only). Reviewers can add reviews **per question** *and* an overall review; review history covers **all versions** (each review tagged with its version, and per-question reviews tied to their question). The trial's current status reflects the latest version's most recent overall review. Each review is its own file under `reviews/<trial>__<user>/<version>/`. (Submitters can still see and load all their own versions on the form.)
 
 ## Run locally

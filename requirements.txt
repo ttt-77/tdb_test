@@ -4,3 +4,6 @@
 # ("Cannot load Streamlit frontend code").
 huggingface_hub>=0.25
 requests>=2.31
+# LLM SDKs for the "Run agent" page (users supply their own API keys).
+anthropic>=0.40
+openai>=1.40

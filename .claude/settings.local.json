@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s \"https://huggingface.co/api/datasets/trialdesignbench/intake_form_data/tree/main/submissions/NCT02578680__EricZ\")",
+      "Bash(curl -s \"https://huggingface.co/api/datasets/trialdesignbench/source/tree/main/documents\")",
+      "Bash(curl -s \"https://huggingface.co/api/datasets/trialdesignbench/source/tree/main/documents/10.1001_jama.2016.20939\")",
+      "Bash(curl -s \"https://huggingface.co/api/datasets/trialdesignbench/source/tree/main/documents?recursive=false\")",
+      "Bash(curl -s \"https://huggingface.co/api/datasets/trialdesignbench/source/tree/main\")",
+      "Bash(curl -s \"https://huggingface.co/api/datasets/trialdesignbench/source/tree/main/data\")",
+      "Read(//private/tmp/**)",
+      "Bash(curl -sL \"https://huggingface.co/datasets/trialdesignbench/source/resolve/main/data/tdr.parquet\" -o /tmp/tdr.parquet)",
+      "Read(//tmp/**)",
+      "Bash(curl -s \"https://huggingface.co/api/datasets/trialdesignbench/source/tree/main/documents?recursive=false&limit=2000\")",
+      "Bash(curl -s -o /dev/null -w '%{http_code}' https://huggingface.co/api/datasets/trialdesignbench/source/tree/main/documents/__TRACKED_VAR__)",
+      "Bash(curl -s -r 0-600 \"https://huggingface.co/datasets/trialdesignbench/source/resolve/main/documents/10.1001_jama.2016.20939/sap.lines.json\")",
+      "Bash(curl -sL \"https://huggingface.co/datasets/trialdesignbench/source/resolve/main/documents/10.1056_nejmoa1801005/sap.lines.json\")"
+    ]
+  }
+}

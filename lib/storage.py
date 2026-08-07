@@ -224,6 +224,70 @@ def get_draft(
     return _read_json(paths[-1])  # max stamp = latest draft
 
 
+def _agent_runs_dir(trial_id: str, username: str) -> str:
+    return f"{_pair_dir(trial_id, username)}/agent_runs"
+
+
+def save_agent_run(
+    trial_id: str,
+    username: str,
+    model: str,
+    version: str,
+    output_json: Optional[Dict[str, Any]],
+    output_r: str,
+    raw: str,
+    error: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Save one agent run under
+    submissions/<trial>__<user>/agent_runs/<stamp>__<model>.json.
+
+    Agent runs are neither versions nor drafts and are excluded from both the
+    version listing and the admin console.
+    """
+    now = _now_iso()
+    stamp = _stamp(now)
+    path = f"{_agent_runs_dir(trial_id, username)}/{stamp}__{_safe(model)}.json"
+    record = {
+        "ranAt": now,
+        "runId": stamp,
+        "trial_id": trial_id,
+        "username": username,
+        "model": model,
+        "submission_version": version,
+        "output_json": output_json,
+        "output_r": output_r,
+        "raw": raw,
+        "error": error,
+    }
+    _write_json(path, record, f"Agent run ({model}): {trial_id} — {username} ({stamp})")
+    url = (
+        f"https://huggingface.co/datasets/{HF_DATASET_REPO}"
+        f"/blob/{HF_DATASET_BRANCH}/{path}"
+        if hf_configured
+        else None
+    )
+    return {"path": path, "url": url, "ranAt": now, "runId": stamp, "record": record}
+
+
+def list_agent_runs(
+    trial_id: str, username: str, all_files: Optional[List[str]] = None
+) -> List[Dict[str, Any]]:
+    """All agent runs for (trial_id, username), newest first."""
+    prefix = f"{_agent_runs_dir(trial_id, username)}/"
+    files = all_files if all_files is not None else _all_files()
+    paths = sorted(
+        (f for f in files if f.startswith(prefix) and f.endswith(".json")), reverse=True
+    )
+    out: List[Dict[str, Any]] = []
+    for p in paths:
+        rec = _read_json(p)
+        if rec:
+            rec = dict(rec)
+            rec["path"] = p
+            out.append(rec)
+    return out
+
+
 def list_versions(
     trial_id: str, username: str, all_files: Optional[List[str]] = None
 ) -> List[Dict[str, Any]]:
@@ -238,7 +302,10 @@ def list_versions(
         (
             f
             for f in files
-            if f.startswith(prefix) and f.endswith(".json") and "/drafts/" not in f
+            if f.startswith(prefix)
+            and f.endswith(".json")
+            and "/drafts/" not in f
+            and "/agent_runs/" not in f
         ),
         reverse=True,
     )
@@ -389,6 +456,7 @@ def list_submissions() -> List[Dict[str, Any]]:
         if f.startswith(f"{SUBMISSIONS_PREFIX}/")
         and f.endswith(".json")
         and "/drafts/" not in f
+        and "/agent_runs/" not in f
     ]
     # Keep only the newest version path per pair (stamps sort lexically).
     latest_by_pair: Dict[str, str] = {}
