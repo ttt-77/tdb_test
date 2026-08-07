@@ -239,6 +239,7 @@ def save_agent_run(
     error: Optional[str] = None,
     provider: str = "",
     effort: str = "",
+    extra: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Save one agent run under
     submissions/<trial>__<user>/agent_runs/<stamp>__<model>.json.
@@ -263,6 +264,8 @@ def save_agent_run(
         "raw": raw,
         "error": error,
     }
+    if extra:
+        record.update(extra)
     _write_json(path, record, f"Agent run ({model}): {trial_id} — {username} ({stamp})")
     url = (
         f"https://huggingface.co/datasets/{HF_DATASET_REPO}"

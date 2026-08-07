@@ -34,14 +34,25 @@ A Streamlit intake form for trial statisticians. Submissions are saved to a **Hu
   - Under each dimension you can add **multiple criteria**; each criterion has its own `criterion` text, `importance` (HIGH / medium / low), and `tolerance`.
   - **Versions** — every Submit saves a new version. Re-enter the same `trial_id` + `username`, click **Find versions**, pick one, and **Load selected version** to pull it back into the form for editing; Submit then saves a new version.
   - **Draft** — **Save draft** persists the current form (not a version) as a timestamped file `submissions/<DOI>__<username>/drafts/<stamp>.json`; each save keeps history. Re-enter the same DOI + username and click **Load draft** to restore the latest draft. Drafts are excluded from version listings and the admin console.
-- **Run agent page (`pages/2_Run_Agent.py`)** — pick a submitted version, then
-  choose **provider → model → reasoning effort → API key** (cascading, so only
-  valid options are offered), and run the trial-statistician prompt against the
-  trial's SAP (or protocol) text. Models come from the registry in
-  `lib/agent.py` (Anthropic: Opus 5 / Fable 5 / Sonnet 5 / Haiku 4.5; OpenAI:
-  GPT-5.6 Sol / Terra / Luna), plus an "Other" option for any custom id. Effort
-  is sent as `output_config.effort` (Anthropic) or `reasoning_effort` (OpenAI),
-  and the picker only lists levels that model accepts. Each
+- **Run agent page (`pages/2_Run_Agent.py`)** — a real **agentic loop**, not a
+  single call. Pick a submitted version, then choose **provider → model →
+  reasoning effort → API key** (cascading, so only valid options are offered).
+  The agent gets a **workspace** containing the trial's document as
+  `sap.txt`/`protocol.txt` (with `===== Page N =====` markers) and works with
+  five sandboxed tools — `list_files`, `read_file` (paged), `grep`,
+  `write_file`, `run_r` — so it explores the SAP on demand instead of receiving
+  ~120K tokens up front. It must **write `output.json` and `output.R`** into the
+  workspace, and can execute the R script to verify it and fix errors before
+  finishing. The loop, tool schemas and workspace live in `lib/agent_loop.py` and
+  `lib/tools.py`; every path is confined to the workspace root. A live status log
+  shows each tool call, and the run records iterations, tool calls, token usage
+  and the full transcript. Models come from the registry in `lib/agent.py`
+  (Anthropic: Opus 5 / Fable 5 / Sonnet 5 / Haiku 4.5; OpenAI: GPT-5.6 Sol /
+  Terra / Luna), plus an "Other" option for any custom id. Effort is sent as
+  `output_config.effort` (Anthropic) or `reasoning_effort` (OpenAI), and the
+  picker only lists levels that model accepts. `apt.txt` installs `r-base-core`
+  so `run_r` works on the Space; without R the tool reports that and the agent
+  continues. Each
   user supplies **their own API key** on the page — nothing is stored
   server-side, so runs never spend the Space owner's credits. Results are shown
   per question and saved to
