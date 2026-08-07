@@ -40,7 +40,12 @@ A Streamlit intake form for trial statisticians. Submissions are saved to a **Hu
     starting point (your DOI/username are kept). Drafts and agent runs are
     excluded.
   - **Draft** — **Save draft** persists the current form (not a version) as a timestamped file `submissions/<DOI>__<username>/drafts/<stamp>.json`; each save keeps history. Re-enter the same DOI + username and click **Load draft** to restore the latest draft. Drafts are excluded from version listings and the admin console.
-- **Run agent page (`pages/2_Run_Agent.py`)** — a real **agentic loop**, not a
+- **Run agent page — ⏸️ currently disabled** (lives in
+  `disabled_pages/2_Run_Agent.py`, so Streamlit does not load it). To re-enable:
+  `git mv disabled_pages/2_Run_Agent.py pages/2_Run_Agent.py`, uncomment
+  `anthropic`/`openai` in `requirements.txt`, and add an `apt.txt` containing
+  `r-base-core` if you want the `run_r` tool to work on the Space. What it does:
+  a real **agentic loop**, not a
   single call. Pick a submitted version, then choose **provider → model →
   reasoning effort → API key** (cascading, so only valid options are offered).
   The agent gets a **workspace** containing the trial's document as
