@@ -35,6 +35,7 @@ from lib.storage import (
     get_draft,
     get_submission,
     hf_configured,
+    list_reference_submissions,
     list_versions,
     pair_reviews,
     save_draft,
@@ -524,6 +525,128 @@ def render_trial_browser() -> None:
     st.dataframe(shown, use_container_width=True, hide_index=True, height=360)
 
 
+# ------------- reference browser (other people's submissions) -------------
+
+@st.cache_data(show_spinner=False, ttl=300)
+def _load_reference_list() -> list:
+    return list_reference_submissions()
+
+
+def _render_reference_questions(prompts: list) -> None:
+    """Read-only view of a submission's questions (markdown only — no widgets,
+    so it can't collide with the editable form's keys)."""
+    if not prompts:
+        st.caption("This submission has no questions.")
+        return
+    for q in prompts:
+        de = q.get("design_element", "")
+        if de == "Others" and q.get("design_element_other"):
+            de = f"Others: {q['design_element_other']}"
+        with st.container(border=True):
+            st.markdown(
+                f"**`{q.get('id','')}` · {de or '—'} · `{q.get('question_type','') or '—'}`**"
+            )
+            st.markdown(f"> {q.get('question','') or '_(empty)_'}")
+            for r in q.get("rubrics") or []:
+                head = f"**Artifact:** `{r.get('artifact','')}`"
+                if r.get("dimension"):
+                    head += f" · **Dimension:** {r['dimension']}"
+                st.markdown(head)
+                crits = r.get("criteria")
+                if crits is None:  # legacy single-criterion records
+                    crits = [
+                        {
+                            "criterion": r.get("criterion", ""),
+                            "importance": r.get("points", ""),
+                            "scoring": "",
+                        }
+                    ]
+                for i, c in enumerate(crits, 1):
+                    bits = []
+                    if c.get("importance"):
+                        bits.append(f"importance: **{c['importance']}**")
+                    if c.get("scoring"):
+                        bits.append(f"scoring: **{c['scoring']}**")
+                    line = f"&nbsp;&nbsp;{i}. {c.get('criterion','') or '—'}"
+                    if bits:
+                        line += "  \n&nbsp;&nbsp;&nbsp;&nbsp;_" + " · ".join(bits) + "_"
+                    st.markdown(line)
+
+
+@fragment
+def render_reference_browser() -> None:
+    """Browse other people's submitted forms as a reference / starting point."""
+    if not st.toggle(
+        "📚 See how others filled the form",
+        key="show_reference_browser",
+        help="Browse submitted forms from other trials/users as a reference.",
+    ):
+        return
+
+    try:
+        refs = _load_reference_list()
+    except Exception as e:
+        st.error(f"Could not list submissions: {e}")
+        return
+    if not refs:
+        st.caption("No submissions yet.")
+        return
+
+    rc1, rc2 = st.columns([4, 1])
+    with rc1:
+        labels = {
+            r["submissionId"]: (
+                f"{r['username']} · {r['trial_id']} · {r['num_questions']} Q"
+                f" · {r['submittedAt'][:16]}"
+            )
+            for r in refs
+        }
+        pick = st.selectbox(
+            f"Submission ({len(refs)} available)",
+            options=[r["submissionId"] for r in refs],
+            format_func=lambda sid: labels.get(sid, sid),
+            key="reference_pick",
+        )
+    with rc2:
+        st.write("")
+        st.write("")
+        if st.button("Refresh", use_container_width=True, key="reference_refresh"):
+            _load_reference_list.clear()
+            st.rerun()
+
+    try:
+        record = get_submission(pick)
+    except Exception as e:
+        st.error(f"Could not load it: {e}")
+        return
+    if not record:
+        st.warning("That submission could not be loaded.")
+        return
+
+    prompts = (record.get("comparison") or {}).get("prompts") or []
+    st.caption(
+        f"Read-only · DOI `{record.get('trial_id','')}` · "
+        f"by **{record.get('username','')}** · version `{record.get('version','')}`"
+    )
+    _render_reference_questions(prompts)
+
+    if st.button(
+        "📋 Copy these questions into my form",
+        key="reference_copy",
+        help="Replaces the questions currently in your form (your DOI and "
+             "username are kept).",
+    ):
+        _populate_form(prompts)
+        st.session_state.last_result = {
+            "kind": "info",
+            "msg": f"Copied {len(prompts)} question(s) into your form as a starting "
+            "point. Edit them, then Submit to save your own version.",
+        }
+        # The questions editor is a separate fragment — rerun the whole app so it
+        # picks up the copied questions.
+        st.rerun(scope="app")
+
+
 # ------------- form ------------------------------------------------------
 
 @fragment
@@ -709,6 +832,9 @@ def render_form() -> None:
 
     # Reference document PDF links (directly under Find versions).
     render_pdf_panel()
+
+    # Browse other people's submitted forms as a reference.
+    render_reference_browser()
 
     versions = st.session_state.versions
     if versions:

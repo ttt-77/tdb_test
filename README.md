@@ -33,6 +33,12 @@ A Streamlit intake form for trial statisticians. Submissions are saved to a **Hu
     - `derivation_required` → 3 dimensions on `output.json`: {Inputs used, Calculated value, Method}
   - Under each dimension you can add **multiple criteria**; each criterion has its own `criterion` text, `importance` (HIGH / medium / low), and `tolerance`.
   - **Versions** — every Submit saves a new version. Re-enter the same `trial_id` + `username`, click **Find versions**, pick one, and **Load selected version** to pull it back into the form for editing; Submit then saves a new version.
+  - **See how others filled the form** — a toggle-gated browser listing the
+    latest version of every submission (`list_reference_submissions()` — one file
+    read each, no reviews, cached 5 min with a Refresh button). Pick one to view
+    its questions and rubrics read-only, or **copy them into your form** as a
+    starting point (your DOI/username are kept). Drafts and agent runs are
+    excluded.
   - **Draft** — **Save draft** persists the current form (not a version) as a timestamped file `submissions/<DOI>__<username>/drafts/<stamp>.json`; each save keeps history. Re-enter the same DOI + username and click **Load draft** to restore the latest draft. Drafts are excluded from version listings and the admin console.
 - **Run agent page (`pages/2_Run_Agent.py`)** — a real **agentic loop**, not a
   single call. Pick a submitted version, then choose **provider → model →

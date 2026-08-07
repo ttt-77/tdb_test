@@ -295,6 +295,43 @@ def list_agent_runs(
     return out
 
 
+def list_reference_submissions() -> List[Dict[str, Any]]:
+    """Latest version of every submission, for browsing others' answers.
+
+    Lightweight compared to list_submissions(): reads one file per submission
+    and skips reviews entirely. Each item: submissionId, trial_id, username,
+    submittedAt, num_questions, num_versions.
+    """
+    files = _all_files()
+    by_pair: Dict[str, List[str]] = {}
+    for f in files:
+        if not (f.startswith(f"{SUBMISSIONS_PREFIX}/") and f.endswith(".json")):
+            continue
+        if "/drafts/" in f or "/agent_runs/" in f:
+            continue
+        by_pair.setdefault(_pair_key_from_path(f), []).append(f)
+
+    out: List[Dict[str, Any]] = []
+    for paths in by_pair.values():
+        latest = max(paths, key=lambda p: p.rsplit("/", 1)[-1])
+        rec = _read_json(latest)
+        if not rec:
+            continue
+        prompts = (rec.get("comparison") or {}).get("prompts") or []
+        out.append(
+            {
+                "submissionId": latest,
+                "trial_id": rec.get("trial_id", ""),
+                "username": rec.get("username", ""),
+                "submittedAt": rec.get("submittedAt", ""),
+                "num_questions": len(prompts),
+                "num_versions": len(paths),
+            }
+        )
+    out.sort(key=lambda r: r.get("submittedAt", ""), reverse=True)
+    return out
+
+
 def list_versions(
     trial_id: str, username: str, all_files: Optional[List[str]] = None
 ) -> List[Dict[str, Any]]:
