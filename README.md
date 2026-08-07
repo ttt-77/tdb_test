@@ -34,9 +34,14 @@ A Streamlit intake form for trial statisticians. Submissions are saved to a **Hu
   - Under each dimension you can add **multiple criteria**; each criterion has its own `criterion` text, `importance` (HIGH / medium / low), and `tolerance`.
   - **Versions** — every Submit saves a new version. Re-enter the same `trial_id` + `username`, click **Find versions**, pick one, and **Load selected version** to pull it back into the form for editing; Submit then saves a new version.
   - **Draft** — **Save draft** persists the current form (not a version) as a timestamped file `submissions/<DOI>__<username>/drafts/<stamp>.json`; each save keeps history. Re-enter the same DOI + username and click **Load draft** to restore the latest draft. Drafts are excluded from version listings and the admin console.
-- **Run agent page (`pages/2_Run_Agent.py`)** — pick a submitted version, choose
-  one or more models (`claude-*` → Anthropic, `gpt-*`/`o*-*` → OpenAI), and run
-  the trial-statistician prompt against the trial's SAP (or protocol) text. Each
+- **Run agent page (`pages/2_Run_Agent.py`)** — pick a submitted version, then
+  choose **provider → model → reasoning effort → API key** (cascading, so only
+  valid options are offered), and run the trial-statistician prompt against the
+  trial's SAP (or protocol) text. Models come from the registry in
+  `lib/agent.py` (Anthropic: Opus 5 / Fable 5 / Sonnet 5 / Haiku 4.5; OpenAI:
+  GPT-5.6 Sol / Terra / Luna), plus an "Other" option for any custom id. Effort
+  is sent as `output_config.effort` (Anthropic) or `reasoning_effort` (OpenAI),
+  and the picker only lists levels that model accepts. Each
   user supplies **their own API key** on the page — nothing is stored
   server-side, so runs never spend the Space owner's credits. Results are shown
   per question and saved to

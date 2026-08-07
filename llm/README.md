@@ -34,7 +34,7 @@ python run_llm.py \
     --submission NCT02578680__EricZ \
     --submission-file ./sub.json \
     --sap-file ./sap.lines.json \
-    --models claude-opus-4-8 gpt-4o
+    --models claude-opus-5 gpt-5.6-sol
 ```
 
 - `--submission-file` — a submission record, or a bare `{trial_id, username, prompts}`.
@@ -52,7 +52,7 @@ python run_llm.py --submission NCT02578680__EricZ \
 # pick a specific SAP doc + models:
 python run_llm.py --submission NCT02578680__EricZ \
     --doc-id 10.1056_nejmoa1801005 \
-    --models claude-opus-4-8 gpt-4o
+    --models claude-opus-5 gpt-5.6-sol
 ```
 
 `--version` accepts the bare filename, a full repo path, or a URL-encoded `%2B`
@@ -89,9 +89,13 @@ out/<submission>/
 ## Notes / caveats
 
 - **Context size:** parsed SAPs are large (e.g. NCT02578680 ≈ 480K chars ≈
-  ~120K tokens). That fits Claude (large context) but may exceed smaller
-  context windows (e.g. gpt-4o's 128K). For those, use a long-context model,
-  or pre-trim the SAP. The script does not truncate.
+  ~120K tokens). Claude 5 models (1M ctx) and GPT-5.6 handle this fine; older or
+  smaller-context models may not. The script does not truncate.
+- **Reasoning effort:** `--effort` sets how much the model reasons —
+  `low|medium|high|xhigh|max` for Anthropic (sent as `output_config.effort`) and
+  `none|low|medium|high|xhigh|max` for OpenAI (sent as `reasoning_effort`).
+  Omit it to use the model's default (`high` for Claude). Note Claude Haiku 4.5
+  does not support effort.
 - **Closed-book:** the prompt forbids outside knowledge; the script only ever
   sends the one SAP document.
 - **Models are pluggable:** any `claude-*` id routes to Anthropic, any

@@ -237,6 +237,8 @@ def save_agent_run(
     output_r: str,
     raw: str,
     error: Optional[str] = None,
+    provider: str = "",
+    effort: str = "",
 ) -> Dict[str, Any]:
     """Save one agent run under
     submissions/<trial>__<user>/agent_runs/<stamp>__<model>.json.
@@ -252,7 +254,9 @@ def save_agent_run(
         "runId": stamp,
         "trial_id": trial_id,
         "username": username,
+        "provider": provider,
         "model": model,
+        "effort": effort,
         "submission_version": version,
         "output_json": output_json,
         "output_r": output_r,

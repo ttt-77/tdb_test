@@ -12,12 +12,15 @@ import json
 import streamlit as st
 
 from lib.agent import (
-    SUGGESTED_MODELS,
+    PROVIDERS,
     build_prompt_block,
     build_user_message,
     call_model,
+    efforts_for,
     extract_blocks,
     load_sap_text,
+    model_info,
+    models_for,
     provider_for,
 )
 from lib.storage import (
@@ -98,36 +101,66 @@ if versions:
 elif doi and user:
     st.caption('Click "Find versions" to list this submission\'s versions.')
 
-# ------------- 2. models + API key ---------------------------------------
+# ------------- 2. provider → model → effort → key -------------------------
 
-st.subheader("2. Models & API key")
+st.subheader("2. Provider, model & effort")
 
-models = st.multiselect(
-    "Models to run",
-    options=SUGGESTED_MODELS,
-    default=[],
-    help="Any claude-* goes to Anthropic; any gpt-*/o*-* goes to OpenAI.",
+provider = st.selectbox("Provider", options=PROVIDERS, key="ra_provider")
+
+entries = models_for(provider)
+model_ids = [e["id"] for e in entries] + ["Other (type an id)…"]
+labels = {e["id"]: e["label"] for e in entries}
+picked = st.selectbox(
+    "Model",
+    options=model_ids,
+    format_func=lambda mid: labels.get(mid, mid),
+    key="ra_model_pick",
 )
-custom = st.text_input(
-    "Other model ids (comma-separated)",
-    placeholder="e.g., claude-opus-4-8, gpt-5.5",
-)
-models = list(dict.fromkeys(models + [m.strip() for m in custom.split(",") if m.strip()]))
 
-needs_anthropic = any(provider_for(m) == "anthropic" for m in models)
-needs_openai = any(provider_for(m) == "openai" for m in models)
+model = picked
+if picked == "Other (type an id)…":
+    model = st.text_input(
+        "Model id",
+        key="ra_model_custom",
+        placeholder="claude-opus-5" if provider == "Anthropic" else "gpt-5.6-sol",
+    ).strip()
 
-anthropic_key = openai_key = ""
-if needs_anthropic:
-    anthropic_key = st.text_input("Anthropic API key", type="password", placeholder="sk-ant-…")
-if needs_openai:
-    openai_key = st.text_input("OpenAI API key", type="password", placeholder="sk-…")
-if models:
-    st.caption("🔒 Your key is used only for this run — it is never stored or logged.")
+# Reasoning effort — only for models that accept it.
+effort = ""
+if model:
+    levels = efforts_for(model)
+    if levels:
+        info = model_info(model)
+        default = info.get("default_effort") or "high"
+        idx = levels.index(default) if default in levels else 0
+        effort = st.selectbox(
+            "Reasoning effort",
+            options=levels,
+            index=idx,
+            key="ra_effort",
+            help=(
+                "Anthropic: sent as output_config.effort. "
+                "OpenAI: sent as reasoning_effort. Higher = deeper reasoning, "
+                "more tokens, slower and more expensive."
+            ),
+        )
+    else:
+        st.caption(f"`{model}` does not support a reasoning-effort setting.")
 
-unknown = [m for m in models if not provider_for(m)]
-if unknown:
-    st.warning(f"Unknown provider for: {', '.join(unknown)} — use a claude-* or gpt-*/o*-* id.")
+# API key for the chosen provider.
+prov_key = provider_for(model) if model else ""
+api_key = ""
+if model:
+    if prov_key == "anthropic":
+        api_key = st.text_input("Anthropic API key", type="password", placeholder="sk-ant-…")
+    elif prov_key == "openai":
+        api_key = st.text_input("OpenAI API key", type="password", placeholder="sk-…")
+    else:
+        st.warning(
+            f"Can't tell the provider for `{model}` — use a claude-* or gpt-*/o*-* id."
+        )
+    if prov_key:
+        st.caption("🔒 Your key is used only for this run — it is never stored or logged.")
 
 doc_kind = st.radio(
     "Input document", ["sap", "protocol"], horizontal=True,
@@ -138,7 +171,7 @@ doc_kind = st.radio(
 
 st.subheader("3. Run")
 
-runnable = bool(selected and models and not unknown)
+runnable = bool(selected and model and prov_key and api_key)
 if st.button("▶️ Run agent", type="primary", disabled=not runnable):
     try:
         record = get_submission(selected)
@@ -149,34 +182,35 @@ if st.button("▶️ Run agent", type="primary", disabled=not runnable):
         if n_q == 0:
             raise RuntimeError("That version has no questions.")
 
-        with st.spinner(f"Loading {doc_kind}.pdf text…"):
+        with st.spinner(f"Loading {doc_kind} text…"):
             sap_text = _sap(doi, doc_kind)
         st.caption(f"{n_q} question(s) · {len(sap_text):,} chars of {doc_kind} text")
 
         user_msg = build_user_message(sap_text, block)
         version = record.get("version", "")
-        results = []
-        for m in models:
-            key = anthropic_key if provider_for(m) == "anthropic" else openai_key
-            with st.spinner(f"Running {m}… (a large SAP can take 1–3 minutes)"):
-                try:
-                    raw = call_model(m, user_msg, api_key=key or None)
-                    out_json, out_r, err = extract_blocks(raw)
-                    saved = save_agent_run(
-                        doi, user, m, version, out_json, out_r, raw, err
-                    )
-                    results.append(
-                        {"model": m, "json": out_json, "r": out_r, "err": err,
-                         "raw": raw, "saved": saved}
-                    )
-                except Exception as e:
-                    results.append({"model": m, "error": str(e)})
-        st.session_state.ra_result = {"kind": "ok", "results": results}
+        eff_note = f" at effort={effort}" if effort else ""
+        with st.spinner(f"Running {model}{eff_note}… (a large SAP can take 1–3 minutes)"):
+            raw = call_model(model, user_msg, api_key=api_key, effort=effort or None)
+        out_json, out_r, err = extract_blocks(raw)
+        saved = save_agent_run(
+            doi, user, model, version, out_json, out_r, raw, err,
+            provider=provider, effort=effort,
+        )
+        st.session_state.ra_result = {
+            "kind": "ok",
+            "model": model,
+            "effort": effort,
+            "json": out_json,
+            "r": out_r,
+            "err": err,
+            "raw": raw,
+            "saved": saved,
+        }
     except Exception as e:
         st.session_state.ra_result = {"kind": "error", "msg": str(e)}
 
 if not runnable:
-    st.caption("Pick a version, choose at least one model, and enter the matching API key.")
+    st.caption("Pick a version, a model, and enter the matching API key.")
 
 # ------------- results ----------------------------------------------------
 
@@ -210,40 +244,34 @@ def _render_answers(out_json: dict) -> None:
 
 if res and res.get("kind") == "ok":
     st.divider()
-    st.subheader("Results")
-    for r in res["results"]:
-        st.markdown(f"### {r['model']}")
-        if r.get("error"):
-            st.error(f"Failed: {r['error']}")
-            continue
-        if r.get("err"):
-            st.warning(f"Could not parse output.json ({r['err']}) — see raw response below.")
-        else:
-            saved = r.get("saved") or {}
-            st.success(f"Saved to `{saved.get('path','')}`")
-            if saved.get("url"):
-                st.markdown(f"[View on Hugging Face]({saved['url']})")
-        if r.get("json"):
-            _render_answers(r["json"])
-            st.download_button(
-                "Download output.json",
-                data=json.dumps(r["json"], indent=2, ensure_ascii=False),
-                file_name=f"output__{r['model']}.json",
-                mime="application/json",
-                key=f"dl_json_{r['model']}",
-            )
-        if r.get("r"):
-            st.markdown("**output.R**")
-            st.code(r["r"], language="r")
-            st.download_button(
-                "Download output.R",
-                data=r["r"],
-                file_name=f"output__{r['model']}.R",
-                mime="text/plain",
-                key=f"dl_r_{r['model']}",
-            )
-        if st.checkbox("Show raw response", key=f"raw_{r['model']}"):
-            st.code(r.get("raw", ""))
+    tag = f"{res['model']}" + (f" · effort={res['effort']}" if res.get("effort") else "")
+    st.subheader(f"Results — {tag}")
+    if res.get("err"):
+        st.warning(f"Could not parse output.json ({res['err']}) — see raw response below.")
+    else:
+        saved = res.get("saved") or {}
+        st.success(f"Saved to `{saved.get('path','')}`")
+        if saved.get("url"):
+            st.markdown(f"[View on Hugging Face]({saved['url']})")
+    if res.get("json"):
+        _render_answers(res["json"])
+        st.download_button(
+            "Download output.json",
+            data=json.dumps(res["json"], indent=2, ensure_ascii=False),
+            file_name=f"output__{res['model']}.json",
+            mime="application/json",
+        )
+    if res.get("r"):
+        st.markdown("**output.R**")
+        st.code(res["r"], language="r")
+        st.download_button(
+            "Download output.R",
+            data=res["r"],
+            file_name=f"output__{res['model']}.R",
+            mime="text/plain",
+        )
+    if st.checkbox("Show raw response"):
+        st.code(res.get("raw", ""))
 
 # ------------- past runs --------------------------------------------------
 
@@ -258,7 +286,11 @@ if doi and user:
         if not runs:
             st.caption("No agent runs saved yet.")
         for run in runs:
-            with st.expander(f"{run.get('ranAt','')} · {run.get('model','')}"):
+            eff = run.get("effort")
+            head = f"{run.get('ranAt','')} · {run.get('model','')}"
+            if eff:
+                head += f" · effort={eff}"
+            with st.expander(head):
                 st.caption(f"submission version: `{run.get('submission_version','')}`")
                 if run.get("error"):
                     st.warning(f"parse error: {run['error']}")

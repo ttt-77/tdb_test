@@ -26,7 +26,7 @@ Usage:
     export OPENAI_API_KEY=...         # for OpenAI models
     python run_llm.py --submission NCT02578680__EricZ
     python run_llm.py --submission NCT02578680__EricZ --doc-id 10.1056_nejmoa1801005 \
-        --models claude-opus-4-8 gpt-4o
+        --models claude-opus-5 gpt-5.6-sol
 
 Outputs:
     out/<submission>/<model>/output.json   # completed prompt block
@@ -61,7 +61,7 @@ from lib.agent import (  # noqa: E402
 INTAKE_REPO = "trialdesignbench/intake_form_data"
 SOURCE_REPO = "trialdesignbench/source"
 
-DEFAULT_MODELS = ["claude-opus-4-8", "gpt-4o"]
+DEFAULT_MODELS = ["claude-opus-5", "gpt-5.6-sol"]
 
 
 # ---------------------------------------------------------------------------
@@ -236,6 +236,9 @@ def main() -> None:
                     help="documents/<doc-id> folder (default: resolve from NCT via tdr.parquet)")
     ap.add_argument("--sap-file", default=None,
                     help="local SAP file (.json sap.lines -> page markers, else plain text; skips HF)")
+    ap.add_argument("--effort", default=None,
+                    help="reasoning effort: low|medium|high|xhigh|max (Anthropic) or "
+                         "none|low|medium|high|xhigh|max (OpenAI); omit for the model default")
     ap.add_argument("--models", nargs="+", default=DEFAULT_MODELS,
                     help=f"model ids to run (default: {DEFAULT_MODELS})")
     ap.add_argument("--out", default="out", help="output directory")
@@ -278,7 +281,7 @@ def main() -> None:
         mdir.mkdir(parents=True, exist_ok=True)
         print(f"\n>>> {model}")
         try:
-            raw = call_model(model, user_msg)
+            raw = call_model(model, user_msg, effort=args.effort)
         except Exception as e:
             print(f"    FAILED: {e}")
             (mdir / "error.txt").write_text(str(e), encoding="utf-8")

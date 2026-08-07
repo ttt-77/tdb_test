@@ -51,12 +51,106 @@ RESPONSE_FORMAT_INSTRUCTION = (
     "Do not include any prose outside the two code blocks."
 )
 
-SUGGESTED_MODELS: List[str] = [
-    "claude-opus-4-8",
-    "claude-sonnet-5",
-    "gpt-5.5",
-    "gpt-4o",
-]
+# ---------------------------------------------------------------------------
+# Model registry (verified against the providers' docs, Aug 2026)
+#
+# Anthropic passes effort as output_config={"effort": ...} with levels
+# low/medium/high/xhigh/max (default high); Claude Haiku 4.5 does NOT support it.
+# OpenAI passes reasoning_effort=... with none/low/medium/high/xhigh/max.
+# ---------------------------------------------------------------------------
+
+PROVIDERS: List[str] = ["Anthropic", "OpenAI"]
+
+_ANTHROPIC_ALL = ["low", "medium", "high", "xhigh", "max"]
+_ANTHROPIC_NO_XHIGH = ["low", "medium", "high", "max"]
+_OPENAI_ALL = ["none", "low", "medium", "high", "xhigh", "max"]
+
+MODELS: Dict[str, List[Dict[str, Any]]] = {
+    "Anthropic": [
+        {
+            "id": "claude-opus-5",
+            "label": "Claude Opus 5 — recommended · 1M ctx · $5/$25",
+            "efforts": _ANTHROPIC_ALL,
+            "default_effort": "high",
+        },
+        {
+            "id": "claude-fable-5",
+            "label": "Claude Fable 5 — most capable · 1M ctx · $10/$50",
+            "efforts": _ANTHROPIC_ALL,
+            "default_effort": "high",
+        },
+        {
+            "id": "claude-sonnet-5",
+            "label": "Claude Sonnet 5 — fast + smart · 1M ctx · $3/$15",
+            "efforts": _ANTHROPIC_ALL,
+            "default_effort": "high",
+        },
+        {
+            "id": "claude-haiku-4-5-20251001",
+            "label": "Claude Haiku 4.5 — fastest · 200K ctx · $1/$5 (no effort)",
+            "efforts": [],
+            "default_effort": "",
+        },
+        {
+            "id": "claude-opus-4-8",
+            "label": "Claude Opus 4.8 (legacy) · 1M ctx · $5/$25",
+            "efforts": _ANTHROPIC_ALL,
+            "default_effort": "high",
+        },
+        {
+            "id": "claude-sonnet-4-6",
+            "label": "Claude Sonnet 4.6 (legacy) · 1M ctx · $3/$15",
+            "efforts": _ANTHROPIC_NO_XHIGH,
+            "default_effort": "medium",
+        },
+    ],
+    "OpenAI": [
+        {
+            "id": "gpt-5.6-sol",
+            "label": "GPT-5.6 Sol — flagship",
+            "efforts": _OPENAI_ALL,
+            "default_effort": "medium",
+        },
+        {
+            "id": "gpt-5.6-terra",
+            "label": "GPT-5.6 Terra — balanced",
+            "efforts": _OPENAI_ALL,
+            "default_effort": "medium",
+        },
+        {
+            "id": "gpt-5.6-luna",
+            "label": "GPT-5.6 Luna — most cost-efficient",
+            "efforts": _OPENAI_ALL,
+            "default_effort": "medium",
+        },
+    ],
+}
+
+
+def models_for(provider: str) -> List[Dict[str, Any]]:
+    return MODELS.get(provider, [])
+
+
+def model_info(model_id: str) -> Dict[str, Any]:
+    """Registry entry for a model id ({} if it's a custom/unknown id)."""
+    for entries in MODELS.values():
+        for e in entries:
+            if e["id"] == model_id:
+                return e
+    return {}
+
+
+def efforts_for(model_id: str) -> List[str]:
+    """Effort levels a model accepts. Unknown ids fall back to the provider's set."""
+    info = model_info(model_id)
+    if info:
+        return list(info.get("efforts") or [])
+    p = provider_for(model_id)
+    if p == "anthropic":
+        return list(_ANTHROPIC_ALL)
+    if p == "openai":
+        return list(_OPENAI_ALL)
+    return []
 
 
 # ---------------------------------------------------------------------------
@@ -156,13 +250,24 @@ def provider_for(model: str) -> str:
     return ""
 
 
-def call_anthropic(model: str, user_msg: str, api_key: Optional[str] = None) -> str:
+def call_anthropic(
+    model: str,
+    user_msg: str,
+    api_key: Optional[str] = None,
+    effort: Optional[str] = None,
+) -> str:
     from anthropic import Anthropic
 
     client = Anthropic(api_key=api_key) if api_key else Anthropic()
+    kwargs: Dict[str, Any] = {}
+    if effort:
+        # Anthropic takes effort inside output_config (not a top-level param).
+        kwargs["output_config"] = {"effort": effort}
+    # Thinking tokens count against max_tokens, so give high-effort runs room.
+    max_tokens = 64000 if effort in ("xhigh", "max") else 16000
     resp = client.messages.create(
         model=model,
-        max_tokens=8192,
+        max_tokens=max_tokens,
         system=[{"type": "text", "text": SYSTEM_PROMPT}],
         messages=[
             {
@@ -177,30 +282,45 @@ def call_anthropic(model: str, user_msg: str, api_key: Optional[str] = None) -> 
                 ],
             }
         ],
+        **kwargs,
     )
     return "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
 
 
-def call_openai(model: str, user_msg: str, api_key: Optional[str] = None) -> str:
+def call_openai(
+    model: str,
+    user_msg: str,
+    api_key: Optional[str] = None,
+    effort: Optional[str] = None,
+) -> str:
     from openai import OpenAI
 
     client = OpenAI(api_key=api_key) if api_key else OpenAI()
+    kwargs: Dict[str, Any] = {}
+    if effort:
+        kwargs["reasoning_effort"] = effort
     resp = client.chat.completions.create(
         model=model,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_msg},
         ],
+        **kwargs,
     )
     return resp.choices[0].message.content or ""
 
 
-def call_model(model: str, user_msg: str, api_key: Optional[str] = None) -> str:
+def call_model(
+    model: str,
+    user_msg: str,
+    api_key: Optional[str] = None,
+    effort: Optional[str] = None,
+) -> str:
     provider = provider_for(model)
     if provider == "anthropic":
-        return call_anthropic(model, user_msg, api_key)
+        return call_anthropic(model, user_msg, api_key, effort)
     if provider == "openai":
-        return call_openai(model, user_msg, api_key)
+        return call_openai(model, user_msg, api_key, effort)
     raise ValueError(
         f"Unknown model '{model}' — use a claude-* (Anthropic) or gpt-*/o*-* (OpenAI) id."
     )
