@@ -435,6 +435,13 @@ def render_pdf_panel() -> None:
             "to get its PDF links."
         )
         return
+    known = valid_dois()
+    if known and doc not in known:
+        st.warning(
+            f"No source document found for DOI `{doc}`. "
+            "Check it, or use 🔎 Browse trials to find a valid DOI."
+        )
+        return
     sap_url = _pdf_url(doc, "sap")
     proto_url = _pdf_url(doc, "protocol")
     st.markdown(
@@ -466,6 +473,12 @@ def load_trials() -> list:
             return list(csv.DictReader(fh))
     except Exception:
         return []
+
+
+@st.cache_data(show_spinner=False)
+def valid_dois() -> set:
+    """Lowercased set of DOIs that have a source document (from trials.csv)."""
+    return {(r.get("DOI") or "").strip().lower() for r in load_trials() if r.get("DOI")}
 
 
 @fragment
