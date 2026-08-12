@@ -32,6 +32,8 @@ from lib.schema import (
     dimensions_for_type,
 )
 from lib.storage import (
+    FORM_PASSWORD,
+    check_form_password,
     get_draft,
     get_submission,
     hf_configured,
@@ -884,6 +886,27 @@ def render_form() -> None:
 
 st.title("Trial Design Benchmark")
 st.caption("Statistician intake form")
+
+# ------------- auth ------------------------------------------------------
+
+if "form_authed" not in st.session_state:
+    st.session_state.form_authed = False
+
+if not FORM_PASSWORD:
+    st.warning("`FORM_PASSWORD` is not set on the server — the form is open to anyone.")
+    st.session_state.form_authed = True
+
+if not st.session_state.form_authed:
+    with st.form("form_auth"):
+        pw = st.text_input("Password", type="password")
+        if st.form_submit_button("Continue"):
+            if check_form_password(pw):
+                st.session_state.form_authed = True
+                st.rerun()
+            else:
+                st.error("Wrong password.")
+    st.stop()
+
 if not hf_configured:
     st.info(
         "ℹ️ HF env vars not set — submissions will be written to `./data/submissions/` "

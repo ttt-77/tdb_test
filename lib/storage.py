@@ -14,6 +14,7 @@ Env vars (set in HF Space → Settings → Variables and secrets):
     HF_DATASET_REPO     - e.g. "ttt-77/tdb-intake-submissions"
     HF_DATASET_BRANCH   - optional, defaults to "main"
     ADMIN_PASSWORD      - shared password for the Admin page
+    FORM_PASSWORD       - shared password for the intake form
 
 If HF_TOKEN or HF_DATASET_REPO is missing, all I/O goes to ./data/... so local
 dev works without HF credentials.
@@ -39,6 +40,9 @@ HF_TOKEN = os.environ.get("HF_TOKEN", "").strip()
 HF_DATASET_REPO = os.environ.get("HF_DATASET_REPO", "").strip()
 HF_DATASET_BRANCH = os.environ.get("HF_DATASET_BRANCH", "main").strip() or "main"
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
+# Separate gate for the intake form itself (share this one with submitters;
+# ADMIN_PASSWORD stays reviewer-only).
+FORM_PASSWORD = os.environ.get("FORM_PASSWORD", "")
 
 hf_configured = bool(HF_TOKEN and HF_DATASET_REPO)
 
@@ -547,3 +551,9 @@ def check_admin_password(supplied: str) -> bool:
     if not ADMIN_PASSWORD:
         return True  # no password configured = open (dev mode)
     return supplied == ADMIN_PASSWORD
+
+
+def check_form_password(supplied: str) -> bool:
+    if not FORM_PASSWORD:
+        return True  # no password configured = open (dev mode)
+    return supplied == FORM_PASSWORD

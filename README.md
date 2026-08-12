@@ -125,7 +125,11 @@ In the Space → **Settings → Variables and secrets** → add as **secrets**:
 | `HF_TOKEN` | the token from step 2 |
 | `HF_DATASET_REPO` | `<your-username>/tdb-intake-submissions` |
 | `HF_DATASET_BRANCH` | `main` (optional, defaults to `main`) |
-| `ADMIN_PASSWORD` | a password to share with reviewers |
+| `FORM_PASSWORD` | a password to share with submitters (gates the intake form) |
+| `ADMIN_PASSWORD` | a password to share with reviewers (gates the Admin page) |
+
+Both passwords are independent — the form password does not open Admin and vice
+versa. If either is unset, that page is open to anyone and shows a warning.
 
 The Space will restart automatically and pick up the new secrets.
 
@@ -238,7 +242,8 @@ for key in reviews:
 ## Privacy notes
 
 - The dataset repo should be **private**.
-- `HF_TOKEN` and `ADMIN_PASSWORD` live only in Space secrets — never commit them.
+- `HF_TOKEN`, `FORM_PASSWORD` and `ADMIN_PASSWORD` live only in Space secrets —
+  never commit them.
 - Rotate the token periodically.
 
 ## Extending with Python ML libs
