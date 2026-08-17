@@ -45,6 +45,9 @@ from lib.storage import (
 st.set_page_config(page_title="TDB Intake", page_icon="🔬", layout="centered")
 
 SOURCE_REPO = "trialdesignbench/source"
+DEMO_VIDEO_URL = (
+    "https://drive.google.com/file/d/1RPhP2Fwrwqurc7Xrs38uXeBf3IwNk1wD/view"
+)
 
 # st.fragment (Streamlit >=1.37) isolates reruns; fall back to a no-op on older
 # versions so the app still runs (just without the perf isolation).
@@ -884,6 +887,11 @@ def render_form() -> None:
 
 st.title("Trial Design Benchmark")
 st.caption("Statistician intake form")
+st.markdown(
+    f'🎬 <a href="{DEMO_VIDEO_URL}" target="_blank" rel="noopener">'
+    "Watch the demo video ↗</a> — how to fill in this form.",
+    unsafe_allow_html=True,
+)
 if not hf_configured:
     st.info(
         "ℹ️ HF env vars not set — submissions will be written to `./data/submissions/` "
