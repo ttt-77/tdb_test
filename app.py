@@ -24,6 +24,7 @@ from pathlib import Path
 
 import streamlit as st
 
+from lib.agent import SYSTEM_PROMPT
 from lib.schema import (
     DESIGN_ELEMENTS,
     IMPORTANCE_OPTIONS,
@@ -47,6 +48,9 @@ st.set_page_config(page_title="TDB Intake", page_icon="🔬", layout="centered")
 SOURCE_REPO = "trialdesignbench/source"
 DEMO_VIDEO_URL = (
     "https://drive.google.com/file/d/1RPhP2Fwrwqurc7Xrs38uXeBf3IwNk1wD/view"
+)
+SYSTEM_PROMPT_URL = (
+    "https://github.com/ttt-77/tdb_test/blob/main/lib/agent.py#L21"
 )
 
 # st.fragment (Streamlit >=1.37) isolates reruns; fall back to a no-op on older
@@ -889,9 +893,24 @@ st.title("Trial Design Benchmark")
 st.caption("Statistician intake form")
 st.markdown(
     f'🎬 <a href="{DEMO_VIDEO_URL}" target="_blank" rel="noopener">'
-    "Watch the demo video ↗</a> — how to fill in this form.",
+    "Watch the demo video ↗</a> — how to fill in this form."
+    "&nbsp; · &nbsp;"
+    f'📄 <a href="{SYSTEM_PROMPT_URL}" target="_blank" rel="noopener">'
+    "System prompt on GitHub ↗</a>",
     unsafe_allow_html=True,
 )
+with st.expander("📄 System prompt — what the model is asked to do"):
+    st.caption(
+        "This is the exact prompt used to run models on a submission "
+        "(the live copy from `lib/agent.py`)."
+    )
+    st.code(SYSTEM_PROMPT, language="text")
+    st.download_button(
+        "Download system_prompt.txt",
+        data=SYSTEM_PROMPT,
+        file_name="system_prompt.txt",
+        mime="text/plain",
+    )
 if not hf_configured:
     st.info(
         "ℹ️ HF env vars not set — submissions will be written to `./data/submissions/` "
