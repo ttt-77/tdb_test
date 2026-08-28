@@ -12,6 +12,7 @@ import json
 import streamlit as st
 
 from lib.schema import VALID_STATUSES, question_content_hash
+from lib.ui import TEXTAREA_AUTOGROW_CSS, autoheight
 from lib.storage import (
     ADMIN_PASSWORD,
     add_review,
@@ -21,6 +22,7 @@ from lib.storage import (
 )
 
 st.set_page_config(page_title="TDB Intake — Admin", page_icon="🔍", layout="wide")
+st.markdown(TEXTAREA_AUTOGROW_CSS, unsafe_allow_html=True)
 
 STATUS_EMOJI = {
     "pending": "🟡",
@@ -92,7 +94,8 @@ def render_questions(
             # text_area so reviewers can read the whole question, not one line.
             st.text_area(
                 "Question", value=q.get("question", ""), disabled=True,
-                key=f"qq_{submission_id}_{qid}", height=80,
+                key=f"qq_{submission_id}_{qid}",
+                height=autoheight(q.get("question", "")),
             )
 
             rubrics = q.get("rubrics") or []

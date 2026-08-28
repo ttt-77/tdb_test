@@ -32,6 +32,7 @@ from lib.schema import (
     SCORING_OPTIONS,
     dimensions_for_type,
 )
+from lib.ui import TEXTAREA_AUTOGROW_CSS, autoheight
 from lib.storage import (
     get_draft,
     get_submission,
@@ -44,6 +45,7 @@ from lib.storage import (
 )
 
 st.set_page_config(page_title="TDB Intake", page_icon="🔬", layout="centered")
+st.markdown(TEXTAREA_AUTOGROW_CSS, unsafe_allow_html=True)
 
 SOURCE_REPO = "trialdesignbench/source"
 DEMO_VIDEO_URL = (
@@ -702,7 +704,7 @@ def _questions_fragment() -> None:
                 "Question",
                 key=kq(uid, "question"),
                 placeholder="e.g., Alpha allocated to PFS",
-                height=80,
+                height=autoheight(st.session_state.get(kq(uid, "question"), "")),
             )
 
             # Reviewer feedback for this question across all versions of the trial.
@@ -739,7 +741,10 @@ def _questions_fragment() -> None:
                             st.text_area(
                                 label,
                                 key=kc(uid, j, cid, "criterion"),
-                                height=70,
+                                height=autoheight(
+                                    st.session_state.get(kc(uid, j, cid, "criterion"), ""),
+                                    min_h=70,
+                                ),
                             )
                             cc1, cc2, cc3 = st.columns([2, 2, 1])
                             with cc1:
