@@ -696,8 +696,13 @@ def _questions_fragment() -> None:
                     args=(uid,),
                 )
 
-            st.text_input(
-                "Question", key=kq(uid, "question"), placeholder="e.g., Alpha allocated to PFS"
+            # text_area (not text_input) so a long question wraps and is fully
+            # visible instead of scrolling inside one line.
+            st.text_area(
+                "Question",
+                key=kq(uid, "question"),
+                placeholder="e.g., Alpha allocated to PFS",
+                height=80,
             )
 
             # Reviewer feedback for this question across all versions of the trial.

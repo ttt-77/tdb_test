@@ -89,9 +89,10 @@ def render_questions(
                     "Question type", value=q.get("question_type", "") or "—",
                     disabled=True, key=f"qt_{submission_id}_{qid}",
                 )
-            st.text_input(
+            # text_area so reviewers can read the whole question, not one line.
+            st.text_area(
                 "Question", value=q.get("question", ""), disabled=True,
-                key=f"qq_{submission_id}_{qid}",
+                key=f"qq_{submission_id}_{qid}", height=80,
             )
 
             rubrics = q.get("rubrics") or []
