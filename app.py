@@ -32,7 +32,7 @@ from lib.schema import (
     SCORING_OPTIONS,
     dimensions_for_type,
 )
-from lib.ui import TEXTAREA_AUTOGROW_CSS, autoheight
+from lib.ui import TEXTAREA_AUTOGROW_CSS, textarea_height
 from lib.storage import (
     get_draft,
     get_submission,
@@ -704,7 +704,7 @@ def _questions_fragment() -> None:
                 "Question",
                 key=kq(uid, "question"),
                 placeholder="e.g., Alpha allocated to PFS",
-                height=autoheight(st.session_state.get(kq(uid, "question"), "")),
+                height=textarea_height(st.session_state.get(kq(uid, "question"), "")),
             )
 
             # Reviewer feedback for this question across all versions of the trial.
@@ -741,7 +741,7 @@ def _questions_fragment() -> None:
                             st.text_area(
                                 label,
                                 key=kc(uid, j, cid, "criterion"),
-                                height=autoheight(
+                                height=textarea_height(
                                     st.session_state.get(kc(uid, j, cid, "criterion"), ""),
                                     min_h=70,
                                 ),

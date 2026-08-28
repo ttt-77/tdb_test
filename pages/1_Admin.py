@@ -12,7 +12,7 @@ import json
 import streamlit as st
 
 from lib.schema import VALID_STATUSES, question_content_hash
-from lib.ui import TEXTAREA_AUTOGROW_CSS, autoheight
+from lib.ui import TEXTAREA_AUTOGROW_CSS, textarea_height
 from lib.storage import (
     ADMIN_PASSWORD,
     add_review,
@@ -95,7 +95,7 @@ def render_questions(
             st.text_area(
                 "Question", value=q.get("question", ""), disabled=True,
                 key=f"qq_{submission_id}_{qid}",
-                height=autoheight(q.get("question", "")),
+                height=textarea_height(q.get("question", "")),
             )
 
             rubrics = q.get("rubrics") or []
