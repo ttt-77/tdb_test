@@ -31,6 +31,8 @@ from lib.schema import (
     QUESTION_TYPES,
     SCORING_OPTIONS,
     dimensions_for_type,
+    example_import_json,
+    validate_and_normalize_prompts,
 )
 from lib.ui import TEXTAREA_AUTOGROW_CSS, textarea_height
 from lib.storage import (
@@ -656,6 +658,115 @@ def render_reference_browser() -> None:
         st.rerun(scope="app")
 
 
+# ------------- import questions from a JSON file --------------------------
+
+@fragment
+def render_import_json() -> None:
+    """Let people who wrote questions outside the intake system upload them as
+    JSON: validate, preview, then load into the form and save as the first draft."""
+    if not st.toggle(
+        "📤 Import questions from a JSON file",
+        key="show_import_json",
+        help="Already wrote your questions elsewhere? Upload them here.",
+    ):
+        return
+
+    tc1, tc2 = st.columns([1, 2])
+    with tc1:
+        st.download_button(
+            "⬇️ Download JSON template",
+            data=json.dumps(example_import_json(), indent=2, ensure_ascii=False),
+            file_name="tdb_questions_template.json",
+            mime="application/json",
+            use_container_width=True,
+        )
+    with tc2:
+        st.caption(
+            "Fill the template (or export from your own tool) and upload it below. "
+            "Accepted: a list of questions, `{\"prompts\": [...]}`, or a saved record."
+        )
+
+    with st.expander("Field reference"):
+        st.markdown(
+            f"""
+| Field | Required | Values |
+|---|---|---|
+| `question` | yes | free text |
+| `question_type` | yes | `{'` / `'.join(QUESTION_TYPES)}` |
+| `design_element` | yes | `{'` / `'.join(DESIGN_ELEMENTS)}` — any other text is imported as **Others** |
+| `design_element_other` | if Others | free text |
+| `id` | no | e.g. `P-001`; assigned if missing, must be unique |
+| `rubrics` | no | per dimension: `artifact`, `dimension`, `criteria[]`; generated empty if omitted |
+| `criteria[].criterion` | — | free text (empty rows are dropped on save) |
+| `criteria[].importance` | no | `{'` / `'.join(IMPORTANCE_OPTIONS)}` (default Medium) |
+| `criteria[].scoring` | no | `{'` / `'.join(SCORING_OPTIONS)}` (default Add) |
+
+Dimensions per type — `extraction_only`: `output.json` (no dimension name);
+`derivation_required`: `output.json` × Inputs used / Calculated value / Method.
+Enum values are matched case-insensitively.
+"""
+        )
+
+    up = st.file_uploader("Questions JSON", type=["json"], key="import_json_file")
+    if up is None:
+        return
+
+    try:
+        data = json.loads(up.getvalue().decode("utf-8"))
+    except Exception as e:
+        st.error(f"Not valid JSON: {e}")
+        return
+
+    prompts, errors, warnings = validate_and_normalize_prompts(data)
+
+    if errors:
+        st.error(f"❌ {len(errors)} problem(s) — fix these and upload again:")
+        for e in errors:
+            st.markdown(f"- `{e}`")
+        return
+    if warnings:
+        st.warning(f"⚠️ Imported with {len(warnings)} adjustment(s):")
+        for w in warnings:
+            st.markdown(f"- `{w}`")
+    st.success(f"✅ Valid — {len(prompts)} question(s). Preview:")
+    _render_reference_questions(prompts)
+
+    doi_ok = bool(st.session_state.get("trial_id", "").strip())
+    user_ok = bool(st.session_state.get("username", "").strip())
+    if not (doi_ok and user_ok):
+        st.info("Enter **DOI** and **Username** above so this can be saved as your first draft.")
+
+    if st.button(
+        "📥 Import as first draft",
+        key="import_json_go",
+        type="primary",
+        disabled=not (doi_ok and user_ok),
+        help="Loads these questions into the form (replacing what's there) and "
+             "saves them as a draft under your DOI + username.",
+    ):
+        trial_id = st.session_state.trial_id.strip().lower()
+        username = st.session_state.username.strip()
+        _populate_form(prompts)
+        try:
+            res = save_draft(
+                trial_id, username,
+                {"trial_id": trial_id, "username": username, "prompts": prompts},
+            )
+            st.session_state.last_result = {
+                "kind": "success",
+                "msg": f"Imported {len(prompts)} question(s) and saved as draft "
+                f"`{res['version']}`. Review them below, then Submit when ready.",
+                "url": res.get("url"),
+            }
+        except Exception as e:
+            st.session_state.last_result = {
+                "kind": "error",
+                "msg": f"Loaded into the form, but saving the draft failed: {e}",
+            }
+        # The questions editor is a separate fragment — rerun the whole app.
+        st.rerun(scope="app")
+
+
 # ------------- form ------------------------------------------------------
 
 @fragment
@@ -852,6 +963,9 @@ def render_form() -> None:
 
     # Browse other people's submitted forms as a reference.
     render_reference_browser()
+
+    # Import questions written outside the intake system.
+    render_import_json()
 
     versions = st.session_state.versions
     if versions:

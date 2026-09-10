@@ -39,6 +39,17 @@ A Streamlit intake form for trial statisticians. Submissions are saved to a **Hu
     its questions and rubrics read-only, or **copy them into your form** as a
     starting point (your DOI/username are kept). Drafts and agent runs are
     excluded.
+  - **Import questions from a JSON file** — for people who wrote their questions
+    outside the intake system. A toggle-gated panel offers a downloadable
+    template, a field reference, and a file uploader. The upload is validated by
+    `validate_and_normalize_prompts()` in `lib/schema.py` (precise per-field
+    errors like `prompts[2].question_type: 'guess' is not one of [...]`), and
+    leniently normalized: enum casing/spaces fixed, missing `id`s assigned, an
+    unknown `design_element` mapped to Others, missing `rubrics` generated as
+    empty dimension blocks, defaults filled. Accepts a bare list, `{"prompts":
+    [...]}`, or a full saved record. After a read-only preview, **Import as
+    first draft** loads the questions into the form and saves them as a draft
+    under the entered DOI + username.
   - **Draft** — **Save draft** persists the current form (not a version) as a timestamped file `submissions/<DOI>__<username>/drafts/<stamp>.json`; each save keeps history. Re-enter the same DOI + username and click **Load draft** to restore the latest draft. Drafts are excluded from version listings and the admin console.
 - **Run agent page — ⏸️ currently disabled** (lives in
   `disabled_pages/2_Run_Agent.py`, so Streamlit does not load it). To re-enable:
