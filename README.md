@@ -33,11 +33,16 @@ A Streamlit intake form for trial statisticians. Submissions are saved to a **Hu
     - `derivation_required` → 3 dimensions on `output.json`: {Inputs used, Calculated value, Method}
   - Under each dimension you can add **multiple criteria**; each criterion has its own `criterion` text, `importance` (HIGH / medium / low), and `tolerance`.
   - **Versions** — every Submit saves a new version. Re-enter the same `trial_id` + `username`, click **Find versions**, pick one, and **Load selected version** to pull it back into the form for editing; Submit then saves a new version.
-  - **See how others filled the form** — a toggle-gated browser listing the
-    latest version of every submission (`list_reference_submissions()` — one file
-    read each, no reviews, cached 5 min with a Refresh button). Pick one to view
-    its questions and rubrics read-only, or **copy them into your form** as a
-    starting point (your DOI/username are kept). Drafts and agent runs are
+  - **See how others filled the form** — a toggle-gated **searchable table** of
+    every submission (latest version each), joined with `assets/trials.csv` so
+    each row shows *which trial* it is: Username, DOI, Paper Title, Journal,
+    Year, Therapeutic Area, Phase, #Questions, #Versions, Submitted. Per-column
+    search boxes filter it (AND, case-insensitive), the same UX as the trial
+    browser. **Click a row** to preview its questions and rubrics read-only, or
+    **copy them into your form** as a starting point (your DOI/username are
+    kept). Uses native `st.dataframe` row selection when available, with a
+    selectbox fallback. Backed by `list_reference_submissions()` (one file read
+    each, no reviews, cached 5 min with Refresh). Drafts and agent runs are
     excluded.
   - **Import questions from a JSON file** — for people who wrote their questions
     outside the intake system. A toggle-gated panel offers a downloadable

@@ -19,6 +19,7 @@ the one-rerun-lag ("type twice") bug that comes from mixing value= with key=.
 from __future__ import annotations
 
 import csv
+import inspect
 import json
 from pathlib import Path
 
@@ -584,49 +585,132 @@ def _render_reference_questions(prompts: list) -> None:
                     st.markdown(line)
 
 
+# Search boxes for the reference table (matches the trial browser's UX).
+REF_SEARCH_COLS = ["DOI", "Username", "Paper Title", "Therapeutic Area", "Phase", "Journal"]
+REF_TABLE_COLS = [
+    "Username", "DOI", "Paper Title", "Journal", "Year", "Therapeutic Area",
+    "Phase", "Questions", "Versions", "Submitted",
+]
+_DF_SUPPORTS_SELECT = "on_select" in inspect.signature(st.dataframe).parameters
+
+
+def _reference_rows() -> list:
+    """Submissions joined with trials.csv so each row shows WHICH trial it is."""
+    trials = {(t.get("DOI") or "").strip().lower(): t for t in load_trials()}
+    rows = []
+    for r in _load_reference_list():
+        t = trials.get((r.get("trial_id") or "").strip().lower(), {})
+        rows.append(
+            {
+                "Username": r.get("username", ""),
+                "DOI": r.get("trial_id", ""),
+                "Paper Title": t.get("Paper Title", ""),
+                "Journal": t.get("Journal", ""),
+                "Year": t.get("Year", ""),
+                "Therapeutic Area": t.get("Therapeutic Area", ""),
+                "Phase": t.get("Phase", ""),
+                "Questions": r.get("num_questions", 0),
+                "Versions": r.get("num_versions", 0),
+                "Submitted": (r.get("submittedAt") or "")[:16],
+                "_id": r.get("submissionId", ""),
+            }
+        )
+    return rows
+
+
 @fragment
 def render_reference_browser() -> None:
-    """Browse other people's submitted forms as a reference / starting point."""
+    """Browse other people's submitted forms as a reference / starting point.
+
+    A searchable table (like the trial browser), joined with trials.csv so you
+    can tell which trial each benchmark is for. Click a row to preview it and
+    optionally copy its questions into your form.
+    """
     if not st.toggle(
         "📚 See how others filled the form",
         key="show_reference_browser",
-        help="Browse submitted forms from other trials/users as a reference.",
+        help="Search submitted forms from other trials/users and use one as a reference.",
     ):
         return
 
     try:
-        refs = _load_reference_list()
+        rows = _reference_rows()
     except Exception as e:
         st.error(f"Could not list submissions: {e}")
         return
-    if not refs:
+    if not rows:
         st.caption("No submissions yet.")
         return
 
-    rc1, rc2 = st.columns([4, 1])
-    with rc1:
-        labels = {
-            r["submissionId"]: (
-                f"{r['username']} · {r['trial_id']} · {r['num_questions']} Q"
-                f" · {r['submittedAt'][:16]}"
-            )
-            for r in refs
-        }
-        pick = st.selectbox(
-            f"Submission ({len(refs)} available)",
-            options=[r["submissionId"] for r in refs],
-            format_func=lambda sid: labels.get(sid, sid),
-            key="reference_pick",
-        )
-    with rc2:
-        st.write("")
-        st.write("")
+    # ---- per-column search (AND across boxes, case-insensitive) ----
+    queries = {}
+    r1 = st.columns(3)
+    for col, c in zip(REF_SEARCH_COLS[:3], r1):
+        with c:
+            queries[col] = st.text_input(col, key=f"refsearch_{col}", placeholder="search…")
+    r2 = st.columns(3)
+    for col, c in zip(REF_SEARCH_COLS[3:], r2):
+        with c:
+            queries[col] = st.text_input(col, key=f"refsearch_{col}", placeholder="search…")
+
+    def _match(row: dict) -> bool:
+        for col, q in queries.items():
+            q = (q or "").strip().lower()
+            if q and q not in str(row.get(col, "")).lower():
+                return False
+        return True
+
+    MAX_ROWS = 100
+    filtered = [r for r in rows if _match(r)]
+    shown = filtered[:MAX_ROWS]
+
+    hc1, hc2 = st.columns([4, 1])
+    with hc1:
+        more = f"; showing first {MAX_ROWS} — refine the search" if len(filtered) > MAX_ROWS else ""
+        st.caption(f"{len(filtered)} of {len(rows)} submission(s){more}. Click a row to preview it.")
+    with hc2:
         if st.button("Refresh", use_container_width=True, key="reference_refresh"):
             _load_reference_list.clear()
             st.rerun()
 
+    if not shown:
+        return
+    display = [{k: r.get(k, "") for k in REF_TABLE_COLS} for r in shown]
+
+    # ---- pick a row: native row selection when available, else a selectbox ----
+    picked = None
+    if _DF_SUPPORTS_SELECT:
+        ev = st.dataframe(
+            display, use_container_width=True, hide_index=True, height=320,
+            on_select="rerun", selection_mode="single-row", key="reference_table",
+        )
+        sel = []
+        try:
+            sel = list(ev.selection.rows)
+        except Exception:
+            try:
+                sel = list(ev["selection"]["rows"])
+            except Exception:
+                sel = []
+        if sel and 0 <= sel[0] < len(shown):
+            picked = shown[sel[0]]["_id"]
+    else:
+        st.dataframe(display, use_container_width=True, hide_index=True, height=320)
+        labels = {
+            r["_id"]: f'{r["Username"]} · {r["DOI"]} · {r["Paper Title"][:60]}' for r in shown
+        }
+        picked = st.selectbox(
+            "Select a submission to preview",
+            options=[r["_id"] for r in shown],
+            format_func=lambda sid: labels.get(sid, sid),
+            key="reference_pick",
+        )
+
+    if not picked:
+        return
+
     try:
-        record = get_submission(pick)
+        record = get_submission(picked)
     except Exception as e:
         st.error(f"Could not load it: {e}")
         return
@@ -635,6 +719,9 @@ def render_reference_browser() -> None:
         return
 
     prompts = (record.get("comparison") or {}).get("prompts") or []
+    row = next((r for r in shown if r["_id"] == picked), {})
+    title = row.get("Paper Title") or "(title unknown)"
+    st.markdown(f"**{title}**")
     st.caption(
         f"Read-only · DOI `{record.get('trial_id','')}` · "
         f"by **{record.get('username','')}** · version `{record.get('version','')}`"
