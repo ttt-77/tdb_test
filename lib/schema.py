@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import re
 from typing import Literal, TypedDict, List
 
 DESIGN_ELEMENTS: List[str] = [
@@ -49,6 +50,22 @@ class Question(TypedDict):
     question: str
     question_type: str
     rubrics: List[Rubric]
+
+
+_DOI_URL_PREFIX = re.compile(r"^(?:https?://)?(?:www\.)?(?:dx\.)?doi\.org/", re.IGNORECASE)
+
+
+def normalize_doi(value: str) -> str:
+    """Canonical document id for a DOI, as used for folder names and the PDF store.
+
+    Accepts the published form (``10.1056/NEJMoa2511478``), the URL form
+    (``https://doi.org/10.1056/nejmoa2511478``) or the stored form
+    (``10.1056_nejmoa2511478``) and returns ``10.1056_nejmoa2511478``:
+    lower-case, URL prefix removed, ``/`` replaced by ``_``.
+    """
+    s = str(value or "").strip()
+    s = _DOI_URL_PREFIX.sub("", s)
+    return s.lower().replace("/", "_")
 
 
 def dimensions_for_type(qt: str):
@@ -132,6 +149,36 @@ def _ci_match(value: str, options: List[str]) -> str:
         if key == o.lower().replace(" ", "_").replace("-", "_"):
             return o
     return ""
+
+
+def _blank_criterion() -> dict:
+    return {"criterion": "", "importance": "Medium", "scoring": "Add"}
+
+
+def _complete_rubric_blocks(blocks: List[dict], expected: List[dict]):
+    """Arrange rubric blocks exactly as the form shows them.
+
+    The form always renders every dimension block for the question type, in a
+    fixed order, with a default number of criterion rows (empty rows are
+    dropped on save). Uploaded JSON may give only some blocks / fewer rows, so
+    merge what was given into the canonical layout. Returns
+    ``(blocks, names_of_generated_blocks)``.
+    """
+    out: List[dict] = []
+    added: List[str] = []
+    for dim in expected:
+        key = (dim["artifact"], dim["dimension"].lower())
+        given = [b for b in blocks if (b["artifact"], b["dimension"].lower()) == key]
+        crits: List[dict] = []
+        for b in given:  # duplicates of the same block are merged
+            crits.extend(b.get("criteria") or [])
+        if not given:
+            added.append(f'{dim["artifact"]} / "{dim["dimension"]}"' if dim["dimension"] else dim["artifact"])
+        n_default = max(1, int(dim.get("default_criteria", 1)))
+        while len(crits) < n_default:
+            crits.append(_blank_criterion())
+        out.append({"artifact": dim["artifact"], "dimension": dim["dimension"], "criteria": crits})
+    return out, added
 
 
 def validate_and_normalize_prompts(data):
@@ -223,17 +270,7 @@ def validate_and_normalize_prompts(data):
         rubrics_raw = q.get("rubrics")
         if rubrics_raw is None:
             # Generate the dimension blocks (with the usual number of empty rows).
-            for dim in expected:
-                rubrics_out.append(
-                    {
-                        "artifact": dim["artifact"],
-                        "dimension": dim["dimension"],
-                        "criteria": [
-                            {"criterion": "", "importance": "Medium", "scoring": "Add"}
-                            for _ in range(max(1, int(dim.get("default_criteria", 1))))
-                        ],
-                    }
-                )
+            rubrics_out, _ = _complete_rubric_blocks([], expected)
             if expected:
                 warnings.append(f"{loc}: no rubrics given; empty dimension blocks generated.")
         elif not isinstance(rubrics_raw, list):
@@ -299,6 +336,13 @@ def validate_and_normalize_prompts(data):
                 rubrics_out.append(
                     {"artifact": artifact, "dimension": canon or dim_raw, "criteria": crits_out}
                 )
+            if qt:
+                rubrics_out, added = _complete_rubric_blocks(rubrics_out, expected)
+                if added:
+                    warnings.append(
+                        f"{loc}: rubric block(s) missing for {qt}; empty rows generated "
+                        f"for: {', '.join(added)}."
+                    )
 
         prompts.append(
             {

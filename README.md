@@ -23,6 +23,12 @@ A Streamlit intake form for trial statisticians. Submissions are saved to a **Hu
   works); optional per-column filters live under "Filter by column".
   Copy a `DOI` into the DOI field to pick a trial. Regenerate the CSV from the
   source dataset when it changes.
+- **DOI normalization** — the stored document id uses `_` for `/`
+  (`10.1056_nejmoa2511478`). The DOI field accepts the published form
+  (`10.1056/NEJMoa2511478`) or a `https://doi.org/…` link and rewrites it to
+  the stored form on edit (`normalize_doi()` in `lib/schema.py`); both table
+  searches treat `/` and `_` alike, so searching `10.1056/nejmoa2511478` finds
+  the trial.
 - **Reference PDF links** — open-in-new-tab links to the document's `sap.pdf` /
   `protocol.pdf` in the public `trialdesignbench/source` dataset. The entered
   DOI is used directly as the document id (e.g. `10.1200_jco.22.01989`), so
@@ -54,11 +60,16 @@ A Streamlit intake form for trial statisticians. Submissions are saved to a **Hu
     `validate_and_normalize_prompts()` in `lib/schema.py` (precise per-field
     errors like `prompts[2].question_type: 'guess' is not one of [...]`), and
     leniently normalized: enum casing/spaces fixed, missing `id`s assigned, an
-    unknown `design_element` mapped to Others, missing `rubrics` generated as
-    empty dimension blocks, defaults filled. Accepts a bare list, `{"prompts":
-    [...]}`, or a full saved record. After a read-only preview, **Import as
-    first draft** loads the questions into the form and saves them as a draft
-    under the entered DOI + username.
+    unknown `design_element` mapped to Others, defaults filled, and the
+    rubrics **rearranged into the exact form layout**: every dimension block
+    for the question type is present, in order, padded to the form's default
+    number of criterion rows (missing blocks/rows are generated empty and
+    dropped again on save). Accepts a bare list, `{"prompts": [...]}`, or a
+    full saved record. After a collapsible read-only preview, **Load into the
+    form** replaces the form's questions with the converted ones so they can be
+    **edited and submitted like any hand-entered form**; the import panel
+    collapses and a banner appears at the top of *Questions*. If DOI + username
+    are already filled, the same click also saves them as the first draft.
   - **Draft** — **Save draft** persists the current form (not a version) as a timestamped file `submissions/<DOI>__<username>/drafts/<stamp>.json`; each save keeps history. Re-enter the same DOI + username and click **Load draft** to restore the latest draft. Drafts are excluded from version listings and the admin console.
 - **Run agent page — ⏸️ currently disabled** (lives in
   `disabled_pages/2_Run_Agent.py`, so Streamlit does not load it). To re-enable:

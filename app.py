@@ -27,6 +27,7 @@ import streamlit as st
 
 from lib.agent import SYSTEM_PROMPT
 from lib.schema import (
+    normalize_doi,
     DESIGN_ELEMENTS,
     IMPORTANCE_OPTIONS,
     QUESTION_TYPES,
@@ -123,9 +124,26 @@ if "pair_reviews" not in st.session_state:
     st.session_state.pair_reviews = []
 if "loaded_version" not in st.session_state:
     st.session_state.loaded_version = ""
+if "import_uploader_nonce" not in st.session_state:
+    st.session_state.import_uploader_nonce = 0
+# After a JSON import the import panel asks (via this flag) to be collapsed and
+# its uploader cleared on the *next* run — widget state can only be changed
+# before the widget is instantiated.
+if st.session_state.pop("_collapse_import_panel", False):
+    st.session_state.show_import_json = False
+    st.session_state.import_uploader_nonce += 1
 
 
 # ------------- callbacks -------------------------------------------------
+
+def _normalize_doi_input() -> None:
+    """Canonicalize the DOI field as soon as it is edited: `10.1056/NEJMoa…`
+    or a `https://doi.org/…` link becomes the stored form `10.1056_nejmoa…`."""
+    raw = st.session_state.get("trial_id", "")
+    norm = normalize_doi(raw)
+    if norm != raw:
+        st.session_state.trial_id = norm
+
 
 def _add_question() -> None:
     new_id = _next_question_id()
@@ -233,10 +251,11 @@ def _build_prompts() -> list:
 
 
 def _save_draft() -> None:
-    trial_id = st.session_state.trial_id.strip().lower()  # DOI is case-insensitive
+    trial_id = normalize_doi(st.session_state.trial_id)
     username = st.session_state.username.strip()
     if not trial_id or not username:
         st.session_state.last_result = {
+            "at": "bottom",
             "kind": "error",
             "msg": "DOI and username are required to save a draft.",
         }
@@ -245,17 +264,18 @@ def _save_draft() -> None:
     try:
         result = save_draft(trial_id, username, comparison)
         st.session_state.last_result = {
+            "at": "bottom",
             "kind": "success",
             "msg": f"Draft saved as `{result['version']}`. Come back with the same "
             f"DOI + username and click “Load draft” to restore the latest draft.",
             "url": result.get("url"),
         }
     except Exception as e:
-        st.session_state.last_result = {"kind": "error", "msg": f"Save draft failed: {e}"}
+        st.session_state.last_result = {"at": "bottom", "kind": "error", "msg": f"Save draft failed: {e}"}
 
 
 def _find_versions() -> None:
-    trial_id = st.session_state.trial_id.strip().lower()  # DOI is case-insensitive
+    trial_id = normalize_doi(st.session_state.trial_id)
     username = st.session_state.username.strip()
     if not trial_id or not username:
         st.session_state.versions = []
@@ -353,7 +373,7 @@ def _load_selected() -> None:
 
 
 def _load_draft() -> None:
-    trial_id = st.session_state.trial_id.strip().lower()  # DOI is case-insensitive
+    trial_id = normalize_doi(st.session_state.trial_id)
     username = st.session_state.username.strip()
     if not trial_id or not username:
         st.session_state.last_result = {
@@ -382,10 +402,10 @@ def _load_draft() -> None:
 
 
 def _submit() -> None:
-    trial_id = st.session_state.trial_id.strip().lower()  # DOI is case-insensitive
+    trial_id = normalize_doi(st.session_state.trial_id)
     username = st.session_state.username.strip()
     if not trial_id or not username:
-        st.session_state.last_result = {"kind": "error", "msg": "trial_id and username are required."}
+        st.session_state.last_result = {"at": "bottom", "kind": "error", "msg": "trial_id and username are required."}
         return
     comparison = {
         "trial_id": trial_id,
@@ -395,6 +415,7 @@ def _submit() -> None:
     try:
         result = save_submission(trial_id, username, comparison)
         st.session_state.last_result = {
+            "at": "bottom",
             "kind": "success",
             "msg": f"Saved as new version `{result['version']}`. "
             "Use “Find versions” to see all versions.",
@@ -405,7 +426,7 @@ def _submit() -> None:
         except Exception:
             pass
     except Exception as e:
-        st.session_state.last_result = {"kind": "error", "msg": f"Submit failed: {e}"}
+        st.session_state.last_result = {"at": "bottom", "kind": "error", "msg": f"Submit failed: {e}"}
 
 
 def _render_review_lines(reviews: list) -> None:
@@ -441,7 +462,7 @@ def render_pdf_panel() -> None:
     by X-Frame-Options and re-sending bytes made the form laggy.
     """
     st.markdown("#### 📄 Reference document")
-    doc = st.session_state.get("trial_id", "").strip().lower()  # DOI is case-insensitive
+    doc = normalize_doi(st.session_state.get("trial_id", ""))
     if not doc:
         st.caption(
             "Enter the DOI (e.g. `10.1200_jco.22.01989`) on the right "
@@ -491,7 +512,7 @@ def load_trials() -> list:
 @st.cache_data(show_spinner=False)
 def valid_dois() -> set:
     """Lowercased set of DOIs that have a source document (from trials.csv)."""
-    return {(r.get("DOI") or "").strip().lower() for r in load_trials() if r.get("DOI")}
+    return {normalize_doi(r.get("DOI")) for r in load_trials() if r.get("DOI")}
 
 
 @fragment
@@ -599,10 +620,10 @@ _DF_SUPPORTS_SELECT = "on_select" in inspect.signature(st.dataframe).parameters
 
 def _reference_rows() -> list:
     """Submissions joined with trials.csv so each row shows WHICH trial it is."""
-    trials = {(t.get("DOI") or "").strip().lower(): t for t in load_trials()}
+    trials = {normalize_doi(t.get("DOI")): t for t in load_trials()}
     rows = []
     for r in _load_reference_list():
-        t = trials.get((r.get("trial_id") or "").strip().lower(), {})
+        t = trials.get(normalize_doi(r.get("trial_id")), {})
         rows.append(
             {
                 "Username": r.get("username", ""),
@@ -796,7 +817,10 @@ Enum values are matched case-insensitively.
 """
         )
 
-    up = st.file_uploader("Questions JSON", type=["json"], key="import_json_file")
+    up = st.file_uploader(
+        "Questions JSON", type=["json"],
+        key=f"import_json_file_{st.session_state.import_uploader_nonce}",
+    )
     if up is None:
         return
 
@@ -817,52 +841,95 @@ Enum values are matched case-insensitively.
         st.warning(f"⚠️ Imported with {len(warnings)} adjustment(s):")
         for w in warnings:
             st.markdown(f"- `{w}`")
-    st.success(f"✅ Valid — {len(prompts)} question(s). Preview:")
-    _render_reference_questions(prompts)
+    st.success(
+        f"✅ Valid — {len(prompts)} question(s), converted to the form layout. Preview:"
+    )
+    with st.expander("Preview (read-only)", expanded=False):
+        _render_reference_questions(prompts)
 
-    doi_ok = bool(st.session_state.get("trial_id", "").strip())
-    user_ok = bool(st.session_state.get("username", "").strip())
-    if not (doi_ok and user_ok):
-        st.info("Enter **DOI** and **Username** above so this can be saved as your first draft.")
+    trial_id = normalize_doi(st.session_state.get("trial_id", ""))
+    username = st.session_state.get("username", "").strip()
+    can_save = bool(trial_id and username)
+    if can_save:
+        st.caption(
+            "Loading also saves these questions as your **first draft** under "
+            f"`{trial_id}` / `{username}`."
+        )
+    else:
+        st.caption(
+            "Enter **DOI** and **Username** above if you also want this saved as your "
+            "first draft — otherwise it is only loaded into the form."
+        )
 
     if st.button(
-        "📥 Import as first draft",
+        "📥 Load into the form — edit below, then Save draft / Submit",
         key="import_json_go",
         type="primary",
-        disabled=not (doi_ok and user_ok),
-        help="Loads these questions into the form (replacing what's there) and "
-             "saves them as a draft under your DOI + username.",
+        help="Replaces the questions currently in the form with these.",
     ):
-        trial_id = st.session_state.trial_id.strip().lower()
-        username = st.session_state.username.strip()
         _populate_form(prompts)
-        try:
-            res = save_draft(
-                trial_id, username,
-                {"trial_id": trial_id, "username": username, "prompts": prompts},
-            )
+        n = len(prompts)
+        if can_save:
+            try:
+                res = save_draft(
+                    trial_id, username,
+                    {"trial_id": trial_id, "username": username, "prompts": prompts},
+                )
+                st.session_state.last_result = {
+                    "kind": "success",
+                    "msg": f"📥 Imported {n} question(s) from `{up.name}` into the form "
+                    f"and saved them as draft `{res['version']}`. Edit them below, "
+                    "then **Submit** (or **Save draft** again).",
+                    "url": res.get("url"),
+                }
+            except Exception as e:
+                st.session_state.last_result = {
+                    "kind": "error",
+                    "msg": f"Imported {n} question(s) into the form, but saving the "
+                    f"draft failed: {e}",
+                }
+        else:
             st.session_state.last_result = {
                 "kind": "success",
-                "msg": f"Imported {len(prompts)} question(s) and saved as draft "
-                f"`{res['version']}`. Review them below, then Submit when ready.",
-                "url": res.get("url"),
+                "msg": f"📥 Imported {n} question(s) from `{up.name}` into the form. "
+                "Edit them below; enter DOI + Username, then **Save draft** or **Submit**.",
             }
-        except Exception as e:
-            st.session_state.last_result = {
-                "kind": "error",
-                "msg": f"Loaded into the form, but saving the draft failed: {e}",
-            }
+        # Collapse this panel on the next run so the loaded form is right here.
+        st.session_state["_collapse_import_panel"] = True
         # The questions editor is a separate fragment — rerun the whole app.
         st.rerun(scope="app")
 
 
 # ------------- form ------------------------------------------------------
 
+def _render_result_banner(where: str) -> None:
+    """Show `last_result` at the place that matches the action that produced it.
+
+    Results tagged ``"at": "bottom"`` (Save draft / Submit) appear under those
+    buttons; everything else (load version/draft, copy, import) appears at the
+    top of the Questions section, right where the loaded questions start.
+    """
+    res = st.session_state.last_result
+    if not res or (res.get("at") or "top") != where:
+        return
+    if res["kind"] == "success":
+        st.success(res["msg"])
+    elif res["kind"] == "error":
+        st.error(res["msg"])
+    else:
+        st.info(res["msg"])
+    if res.get("url"):
+        st.markdown(f"[View on Hugging Face]({res['url']})")
+
+
 @fragment
 def _questions_fragment() -> None:
     """The questions editor + actions. Runs as a fragment so frequent edits
     here don't trigger a full-app rerun (which would re-send the PDF)."""
     st.subheader("Questions")
+    # Results of actions that live *above* this section (load version/draft,
+    # copy from a reference, JSON import) are shown here, where their effect is.
+    _render_result_banner(where="top")
     if not st.session_state.questions:
         st.caption('No questions yet. Click "Add question" below to begin.')
 
@@ -989,17 +1056,8 @@ def _questions_fragment() -> None:
     with action_r:
         st.button("Submit", on_click=_submit, type="primary", use_container_width=True)
 
-    # status banner
-    res = st.session_state.last_result
-    if res:
-        if res["kind"] == "success":
-            st.success(res["msg"])
-            if res.get("url"):
-                st.markdown(f"[View on Hugging Face]({res['url']})")
-        elif res["kind"] == "error":
-            st.error(res["msg"])
-        else:
-            st.info(res["msg"])
+    # status banner for the Save draft / Submit buttons just above
+    _render_result_banner(where="bottom")
 
     with st.expander("Debug: current form state (JSON)"):
         st.code(
@@ -1024,7 +1082,10 @@ def render_form() -> None:
             "DOI",
             key="trial_id",
             placeholder="e.g., 10.1200_jco.22.01989",
-            help="Document id (DOI folder) — used to load the SAP/protocol PDF.",
+            help="Document id (DOI folder) — used to load the SAP/protocol PDF. "
+                 "You can paste `10.1056/NEJMoa2511478` or the doi.org link; it is "
+                 "normalized to `10.1056_nejmoa2511478`.",
+            on_change=_normalize_doi_input,
         )
     with c2:
         st.text_input("Username", key="username", placeholder="e.g., jdoe")

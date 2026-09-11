@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import streamlit as st
 
+from lib.schema import normalize_doi
+
 # Streamlit >= 1.44 supports height="content" (the box sizes itself to the text).
 # Feature-detect from the docstring so this works on any version without
 # hard-coding a version number.
@@ -52,12 +54,19 @@ def row_matches(row: dict, query: str = "", per_column: dict | None = None,
     `per_column` adds column-specific substring filters (AND).
     """
     cols = list(columns) if columns else [k for k in row.keys() if not str(k).startswith("_")]
-    text = " ".join(str(row.get(c, "")) for c in cols).lower()
+    text = " ".join(_search_norm(row.get(c, "")) for c in cols)
     for term in (query or "").split():
-        if term.lower() not in text:
+        if _search_norm(term) not in text:
             return False
     for col, q in (per_column or {}).items():
-        q = (q or "").strip().lower()
-        if q and q not in str(row.get(col, "")).lower():
+        q = _search_norm(q)
+        if q and q not in _search_norm(row.get(col, "")):
             return False
     return True
+
+
+def _search_norm(value) -> str:
+    """Case-insensitive; DOIs match whether written `10.1056/nejmoa…`,
+    `10.1056_nejmoa…` or as a `https://doi.org/…` link (the stored form
+    uses `_` in place of `/`)."""
+    return normalize_doi(value)
