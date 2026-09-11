@@ -18,8 +18,11 @@ A Streamlit intake form for trial statisticians. Submissions are saved to a **Hu
 - **Trial browser** — a searchable table (`🔎 Browse trials`) of all trials,
   built from `tdr.parquet` and shipped as `assets/trials.csv` (columns:
   DOI, Journal, Year, Therapeutic Area, Phase, Paper Title).
-  Each column has its own search box; copy a `DOI` into the DOI field to
-  pick a trial. Regenerate the CSV from the source dataset when it changes.
+  One **global search box** matches across every column (reactable-style:
+  each word must appear somewhere in the row, so `oncology phase 3 nejm`
+  works); optional per-column filters live under "Filter by column".
+  Copy a `DOI` into the DOI field to pick a trial. Regenerate the CSV from the
+  source dataset when it changes.
 - **Reference PDF links** — open-in-new-tab links to the document's `sap.pdf` /
   `protocol.pdf` in the public `trialdesignbench/source` dataset. The entered
   DOI is used directly as the document id (e.g. `10.1200_jco.22.01989`), so
@@ -36,9 +39,10 @@ A Streamlit intake form for trial statisticians. Submissions are saved to a **Hu
   - **See how others filled the form** — a toggle-gated **searchable table** of
     every submission (latest version each), joined with `assets/trials.csv` so
     each row shows *which trial* it is: Username, DOI, Paper Title, Journal,
-    Year, Therapeutic Area, Phase, #Questions, #Versions, Submitted. Per-column
-    search boxes filter it (AND, case-insensitive), the same UX as the trial
-    browser. **Click a row** to preview its questions and rubrics read-only, or
+    Year, Therapeutic Area, Phase, #Questions, #Versions, Submitted. A single
+    **global search box** matches all columns (every word must appear
+    somewhere in the row, case-insensitive), with optional per-column filters
+    under "Filter by column" — the same UX as the trial browser. **Click a row** to preview its questions and rubrics read-only, or
     **copy them into your form** as a starting point (your DOI/username are
     kept). Uses native `st.dataframe` row selection when available, with a
     selectbox fallback. Backed by `list_reference_submissions()` (one file read

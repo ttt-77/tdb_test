@@ -35,7 +35,7 @@ from lib.schema import (
     example_import_json,
     validate_and_normalize_prompts,
 )
-from lib.ui import TEXTAREA_AUTOGROW_CSS, textarea_height
+from lib.ui import TEXTAREA_AUTOGROW_CSS, row_matches, textarea_height
 from lib.storage import (
     get_draft,
     get_submission,
@@ -507,25 +507,28 @@ def render_trial_browser() -> None:
                      key="show_trial_browser"):
         return
 
+    gq = st.text_input(
+        "🔍 Search all columns",
+        key="tsearch_all",
+        placeholder="e.g. oncology phase 3 nejm — every word must match somewhere in the row",
+    )
     queries = {}
-    r1 = st.columns(3)
-    for col, c in zip(TRIAL_COLS[:3], r1):
-        with c:
-            queries[col] = st.text_input(col, key=f"tsearch_{col}", placeholder="search…")
-    r2 = st.columns(3)
-    for col, c in zip(TRIAL_COLS[3:], r2):
-        with c:
-            queries[col] = st.text_input(col, key=f"tsearch_{col}", placeholder="search…")
-
-    def _match(row: dict) -> bool:
-        for col, q in queries.items():
-            q = (q or "").strip().lower()
-            if q and q not in str(row.get(col, "")).lower():
-                return False
-        return True
+    with st.expander("Filter by column"):
+        r1 = st.columns(3)
+        for col, c in zip(TRIAL_COLS[:3], r1):
+            with c:
+                queries[col] = st.text_input(col, key=f"tsearch_{col}", placeholder="search…")
+        r2 = st.columns(3)
+        for col, c in zip(TRIAL_COLS[3:], r2):
+            with c:
+                queries[col] = st.text_input(col, key=f"tsearch_{col}", placeholder="search…")
 
     MAX_ROWS = 100
-    filtered = [{c: r.get(c, "") for c in TRIAL_COLS} for r in trials if _match(r)]
+    filtered = [
+        {c: r.get(c, "") for c in TRIAL_COLS}
+        for r in trials
+        if row_matches(r, gq, queries, TRIAL_COLS)
+    ]
     shown = filtered[:MAX_ROWS]
     if len(filtered) > MAX_ROWS:
         st.caption(
@@ -642,26 +645,25 @@ def render_reference_browser() -> None:
         st.caption("No submissions yet.")
         return
 
-    # ---- per-column search (AND across boxes, case-insensitive) ----
+    # ---- global search (any column) + optional per-column filters ----
+    gq = st.text_input(
+        "🔍 Search all columns",
+        key="refsearch_all",
+        placeholder="e.g. ericz pembrolizumab phase 3 — every word must match somewhere in the row",
+    )
     queries = {}
-    r1 = st.columns(3)
-    for col, c in zip(REF_SEARCH_COLS[:3], r1):
-        with c:
-            queries[col] = st.text_input(col, key=f"refsearch_{col}", placeholder="search…")
-    r2 = st.columns(3)
-    for col, c in zip(REF_SEARCH_COLS[3:], r2):
-        with c:
-            queries[col] = st.text_input(col, key=f"refsearch_{col}", placeholder="search…")
-
-    def _match(row: dict) -> bool:
-        for col, q in queries.items():
-            q = (q or "").strip().lower()
-            if q and q not in str(row.get(col, "")).lower():
-                return False
-        return True
+    with st.expander("Filter by column"):
+        r1 = st.columns(3)
+        for col, c in zip(REF_SEARCH_COLS[:3], r1):
+            with c:
+                queries[col] = st.text_input(col, key=f"refsearch_{col}", placeholder="search…")
+        r2 = st.columns(3)
+        for col, c in zip(REF_SEARCH_COLS[3:], r2):
+            with c:
+                queries[col] = st.text_input(col, key=f"refsearch_{col}", placeholder="search…")
 
     MAX_ROWS = 100
-    filtered = [r for r in rows if _match(r)]
+    filtered = [r for r in rows if row_matches(r, gq, queries, REF_TABLE_COLS)]
     shown = filtered[:MAX_ROWS]
 
     hc1, hc2 = st.columns([4, 1])
